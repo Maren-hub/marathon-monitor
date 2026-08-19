@@ -1,0 +1,181 @@
+{
+  "metadata": {
+    "name": "校园伪马拉松全流程演示场景",
+    "version": "1.0",
+    "data_type": "synthetic",
+    "notice": "全部数据均为教学与原型演示用合成数据，不代表真实赛事或医学诊断结果。",
+    "recommended_demo_duration_seconds": 360
+  },
+  "race": {
+    "id": "RACE-DEMO-001",
+    "name": "2026校园智慧路跑模拟赛",
+    "total_distance_km": 42.195,
+    "participant_count": 120,
+    "simulation_speed": 40,
+    "weather": {
+      "temperature_c": 27.6,
+      "humidity_percent": 68,
+      "wind_speed_m_s": 2.4,
+      "condition": "多云"
+    }
+  },
+  "participant_generation": {
+    "count": 120,
+    "bib_start": 1001,
+    "pace_min_km_range": [4.2, 8.5],
+    "resting_heart_rate_range": [55, 82],
+    "running_heart_rate_range": [125, 185],
+    "wearable_battery_range": [76, 100],
+    "groups": [
+      {"name": "竞速组", "ratio": 0.15, "pace_min_km_range": [4.2, 5.2]},
+      {"name": "大众组", "ratio": 0.65, "pace_min_km_range": [5.2, 7.0]},
+      {"name": "体验组", "ratio": 0.20, "pace_min_km_range": [7.0, 8.5]}
+    ]
+  },
+  "segments": [
+    {
+      "id": "S1",
+      "name": "起跑疏散区",
+      "start_km": 0.0,
+      "end_km": 5.0,
+      "base_crowd_risk": 0.78,
+      "base_health_risk": 0.16,
+      "default_focus": "crowd",
+      "facilities": ["起点指挥台", "医疗点M1", "固定摄像头C1"]
+    },
+    {
+      "id": "S2",
+      "name": "前程密集区",
+      "start_km": 5.0,
+      "end_km": 15.0,
+      "base_crowd_risk": 0.70,
+      "base_health_risk": 0.24,
+      "default_focus": "crowd",
+      "facilities": ["补给点W1", "无人机起降点D1"]
+    },
+    {
+      "id": "S3",
+      "name": "中程平衡区",
+      "start_km": 15.0,
+      "end_km": 28.0,
+      "base_crowd_risk": 0.43,
+      "base_health_risk": 0.42,
+      "default_focus": "balanced",
+      "facilities": ["医疗点M2", "补给点W2", "固定摄像头C2"]
+    },
+    {
+      "id": "S4",
+      "name": "后程体能风险区",
+      "start_km": 28.0,
+      "end_km": 37.0,
+      "base_crowd_risk": 0.24,
+      "base_health_risk": 0.72,
+      "default_focus": "health",
+      "facilities": ["医疗点M3", "救护车A1", "无人机起降点D2"]
+    },
+    {
+      "id": "S5",
+      "name": "终点综合保障区",
+      "start_km": 37.0,
+      "end_km": 42.195,
+      "base_crowd_risk": 0.57,
+      "base_health_risk": 0.82,
+      "default_focus": "health",
+      "facilities": ["终点医疗站M4", "补给点W3", "固定摄像头C3"]
+    }
+  ],
+  "resources": {
+    "drones": [
+      {"id": "UAV-01", "name": "巡检一号", "battery_percent": 96, "home_segment_id": "S2"},
+      {"id": "UAV-02", "name": "巡检二号", "battery_percent": 91, "home_segment_id": "S4"}
+    ],
+    "medical_teams": [
+      {"id": "MED-01", "name": "起点医疗组", "segment_id": "S1", "status": "available"},
+      {"id": "MED-02", "name": "中程医疗组", "segment_id": "S3", "status": "available"},
+      {"id": "MED-03", "name": "后程医疗组", "segment_id": "S4", "status": "available"},
+      {"id": "MED-04", "name": "终点医疗组", "segment_id": "S5", "status": "available"}
+    ]
+  },
+  "representative_athletes": [
+    {"id": "A018", "bib": "1018", "group": "大众组", "usual_pace_min_km": 6.1, "event_role": "跌倒模拟对象"},
+    {"id": "A027", "bib": "1027", "group": "体验组", "usual_pace_min_km": 7.4, "event_role": "体征异常模拟对象"},
+    {"id": "A063", "bib": "1063", "group": "大众组", "usual_pace_min_km": 6.5, "event_role": "正常对照对象"}
+  ],
+  "timeline": [
+    {
+      "demo_second": 0,
+      "race_minute": 0,
+      "type": "stage",
+      "title": "赛事开始",
+      "segment_id": "S1",
+      "expected_system_action": "显示120名模拟参赛者，S1与S2采用聚集优先监测"
+    },
+    {
+      "demo_second": 40,
+      "race_minute": 27,
+      "type": "crowd",
+      "title": "起跑后局部拥挤",
+      "segment_id": "S2",
+      "severity": "warning",
+      "source": ["video"],
+      "expected_system_action": "提高S2聚集风险，UAV-01转向S2并生成关注级报警"
+    },
+    {
+      "demo_second": 105,
+      "race_minute": 70,
+      "type": "stage",
+      "title": "进入中程",
+      "segment_id": "S3",
+      "expected_system_action": "S3切换为综合监测，显示人员分布逐渐拉开"
+    },
+    {
+      "demo_second": 145,
+      "race_minute": 97,
+      "type": "fall",
+      "title": "参赛者跌倒",
+      "segment_id": "S3",
+      "athlete_id": "A018",
+      "severity": "critical",
+      "source": ["video", "wearable_acceleration"],
+      "expected_system_action": "生成紧急报警，定位到赛段和参赛者，推荐MED-02处置并绘制救援路线"
+    },
+    {
+      "demo_second": 215,
+      "race_minute": 143,
+      "type": "vital",
+      "title": "后程体征异常",
+      "segment_id": "S4",
+      "athlete_id": "A027",
+      "severity": "critical",
+      "source": ["wearable_heart_rate", "pace_change"],
+      "synthetic_reading": {"heart_rate_bpm": 194, "pace_min_km": 10.8, "continuous_abnormal_seconds": 45},
+      "expected_system_action": "S4健康风险升高，UAV-02复核，推荐MED-03处置"
+    },
+    {
+      "demo_second": 285,
+      "race_minute": 190,
+      "type": "crowd",
+      "title": "终点区域人员聚集",
+      "segment_id": "S5",
+      "severity": "warning",
+      "source": ["video"],
+      "expected_system_action": "S5切换为综合保障，提示终点疏散并保留健康监测"
+    },
+    {
+      "demo_second": 340,
+      "race_minute": 227,
+      "type": "stage",
+      "title": "赛事结束与复盘",
+      "segment_id": "S5",
+      "expected_system_action": "显示完赛人数、事件数量、平均响应时间和事件处置记录"
+    }
+  ],
+  "demo_kpis": {
+    "event_count": 3,
+    "target_alert_latency_seconds": 3,
+    "target_location_error_m": 20,
+    "target_acknowledge_time_seconds": 15,
+    "comparison_baseline": "固定巡检策略",
+    "comparison_candidate": "风险驱动的动态监测策略"
+  }
+}

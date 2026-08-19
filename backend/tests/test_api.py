@@ -1,0 +1,30 @@
+from fastapi.testclient import TestClient
+
+from backend.app.main import app
+
+
+def test_health_endpoint() -> None:
+    with TestClient(app) as client:
+        response = client.get("/api/health")
+        assert response.status_code == 200
+        assert response.json()["status"] == "ok"
+
+
+def test_snapshot_contains_platform_modules() -> None:
+    with TestClient(app) as client:
+        response = client.get("/api/snapshot")
+        assert response.status_code == 200
+        payload = response.json()
+        assert len(payload["segments"]) == 5
+        assert payload["athletes"]
+        assert payload["drones"]
+
+
+def test_can_inject_fall_event() -> None:
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/simulation/events",
+            json={"event_type": "fall", "segment_id": "S4"},
+        )
+        assert response.status_code == 200
+        assert response.json()["event_type"] == "fall"
