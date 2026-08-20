@@ -77,6 +77,19 @@ class PlatformStats(BaseModel):
     high_risk_segments: int
 
 
+class DemoTimelineState(BaseModel):
+    enabled: bool = False
+    elapsed_seconds: int = 0
+    duration_seconds: int = 0
+    progress_percent: float = Field(ge=0, le=100)
+    current_title: str = "等待自动演示"
+    current_segment_id: str | None = None
+    next_event_title: str | None = None
+    next_event_segment_id: str | None = None
+    next_event_in_seconds: int | None = None
+    completed: bool = False
+
+
 class PlatformSnapshot(BaseModel):
     generated_at: datetime
     race: RaceSummary
@@ -85,6 +98,7 @@ class PlatformSnapshot(BaseModel):
     drones: list[DroneState]
     alerts: list[AlertState]
     stats: PlatformStats
+    demo: DemoTimelineState
 
 
 class SimulationEventRequest(BaseModel):
@@ -93,5 +107,4 @@ class SimulationEventRequest(BaseModel):
 
 
 class SimulationControlRequest(BaseModel):
-    action: Literal["start", "pause", "reset"]
-
+    action: Literal["start", "pause", "reset", "auto_start"]

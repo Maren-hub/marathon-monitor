@@ -11,6 +11,7 @@ from pathlib import Path
 from .schemas import (
     AlertState,
     AthleteState,
+    DemoTimelineState,
     DroneState,
     PlatformSnapshot,
     PlatformStats,
@@ -149,6 +150,14 @@ class MarathonSimulation:
         self._event_counter = 0
         self._running = True
         self._risk_boosts: dict[str, dict[str, float | int]] = {}
+        self.timeline: list[dict] = []
+        self._demo_duration_seconds = 0
+        self._demo_elapsed_seconds = 0
+        self._auto_demo_enabled = False
+        self._demo_completed = False
+        self._triggered_timeline_indices: set[int] = set()
+        self._current_timeline_title = "等待自动演示"
+        self._current_timeline_segment_id: str | None = None
         self.race = RaceSummary()
         self.segments: list[SegmentState] = []
         self.athletes: list[AthleteState] = []
@@ -159,6 +168,16 @@ class MarathonSimulation:
     def _reset_state(self) -> None:
         self.scenario = load_demo_scenario()
         self.segment_definitions = build_segment_definitions(self.scenario)
+        self.timeline = sorted(self.scenario.get("timeline", []), key=lambda item: int(item.get("demo_second", 0)))
+        configured_duration = int(self.scenario.get("metadata", {}).get("recommended_demo_duration_seconds", 0))
+        last_event_second = max((int(item.get("demo_second", 0)) for item in self.timeline), default=0)
+        self._demo_duration_seconds = max(configured_duration, last_event_second + 1)
+        self._demo_elapsed_seconds = 0
+        self._auto_demo_enabled = False
+        self._demo_completed = False
+        self._triggered_timeline_indices.clear()
+        self._current_timeline_title = "等待自动演示"
+        self._current_timeline_segment_id = None
         self._random.seed(20260819)
         self._tick = 0
         self._event_counter = 0
@@ -362,7 +381,42 @@ class MarathonSimulation:
                 self._update_athletes()
                 self._recalculate_segments()
                 self._update_drones()
+                if self._auto_demo_enabled:
+                    self._demo_elapsed_seconds += 1
+                    self._run_timeline_events()
+                    if self._demo_elapsed_seconds >= self._demo_duration_seconds:
+                        self._auto_demo_enabled = False
+                        self._demo_completed = True
+                        self._running = False
+                        self.race.status = "paused"
             return self._build_snapshot()
+
+    def _build_demo_state(self) -> DemoTimelineState:
+        next_event = next(
+            (
+                event
+                for index, event in enumerate(self.timeline)
+                if index not in self._triggered_timeline_indices
+            ),
+            None,
+        )
+        duration = max(self._demo_duration_seconds, 1)
+        return DemoTimelineState(
+            enabled=self._auto_demo_enabled,
+            elapsed_seconds=self._demo_elapsed_seconds,
+            duration_seconds=self._demo_duration_seconds,
+            progress_percent=round(min(100, self._demo_elapsed_seconds / duration * 100), 1),
+            current_title=self._current_timeline_title,
+            current_segment_id=self._current_timeline_segment_id,
+            next_event_title=next_event.get("title") if next_event else None,
+            next_event_segment_id=next_event.get("segment_id") if next_event else None,
+            next_event_in_seconds=(
+                max(0, int(next_event.get("demo_second", 0)) - self._demo_elapsed_seconds)
+                if next_event
+                else None
+            ),
+            completed=self._demo_completed,
+        )
 
     def _build_snapshot(self) -> PlatformSnapshot:
         open_alerts = sum(alert.status == "new" for alert in self.alerts)
@@ -380,54 +434,115 @@ class MarathonSimulation:
                 open_alerts=open_alerts,
                 high_risk_segments=high_risk,
             ),
+            demo=self._build_demo_state(),
         )
 
     async def snapshot(self) -> PlatformSnapshot:
         async with self._lock:
             return self._build_snapshot()
 
+    def _inject_event_unlocked(
+        self,
+        event_type: str,
+        segment_id: str | None,
+        athlete_id: str | None = None,
+        title_override: str | None = None,
+        message_override: str | None = None,
+        heart_rate_override: int | None = None,
+    ) -> AlertState:
+        segment = next((item for item in self.segments if item.id == segment_id), None)
+        if segment is None:
+            segment = max(self.segments, key=lambda item: max(item.crowd_risk, item.health_risk))
+
+        athlete = next((item for item in self.athletes if item.id == athlete_id), None) if athlete_id else None
+        if athlete and athlete.status == "finished":
+            athlete.status = "normal"
+        if athlete and athlete.segment_id != segment.id:
+            athlete.distance_km = round((segment.start_km + segment.end_km) / 2, 3)
+            athlete.segment_id = segment.id
+            athlete.longitude, athlete.latitude = self._location_for_distance(athlete.distance_km)
+        if athlete is None:
+            candidates = [item for item in self.athletes if item.segment_id == segment.id and item.status != "finished"]
+            athlete = self._random.choice(candidates) if candidates else None
+
+        self._event_counter += 1
+        alert_id = f"EVT-{self._event_counter + 1:04d}"
+
+        if event_type == "crowd":
+            self._risk_boosts[segment.id] = {"crowd": 0.38, "health": 0.0, "until": self._tick + 35}
+            level, title = "warning", "检测到人群聚集趋势"
+            message = f"{segment.name}的人群密度持续上升，已提高聚集监测优先级。"
+        elif event_type == "fall":
+            self._risk_boosts[segment.id] = {"crowd": 0.05, "health": 0.42, "until": self._tick + 45}
+            level, title = "critical", "疑似运动员跌倒"
+            message = f"{segment.name}发现疑似跌倒，已请求无人机近距复核。"
+            if athlete:
+                athlete.status = "fallen"
+                athlete.heart_rate = heart_rate_override or 186
+        else:
+            self._risk_boosts[segment.id] = {"crowd": 0.0, "health": 0.34, "until": self._tick + 40}
+            level, title = "warning", "穿戴设备体征异常"
+            message = f"{segment.name}出现持续高心率，已提高个体安全监测优先级。"
+            if athlete:
+                athlete.status = "warning"
+                athlete.heart_rate = heart_rate_override or 192
+
+        alert = AlertState(
+            id=alert_id,
+            created_at=datetime.now(timezone.utc),
+            level=level,
+            event_type=event_type,
+            title=title_override or title,
+            message=message_override or message,
+            segment_id=segment.id,
+            athlete_id=athlete.id if athlete and event_type != "crowd" else None,
+        )
+        self.alerts.append(alert)
+        self._recalculate_segments()
+        return alert
+
     async def inject_event(self, event_type: str, segment_id: str | None) -> AlertState:
         async with self._lock:
-            segment = next((item for item in self.segments if item.id == segment_id), None)
-            if segment is None:
-                segment = max(self.segments, key=lambda item: max(item.crowd_risk, item.health_risk))
-            candidates = [athlete for athlete in self.athletes if athlete.segment_id == segment.id and athlete.status != "finished"]
-            athlete = self._random.choice(candidates) if candidates else None
-            self._event_counter += 1
-            alert_id = f"EVT-{self._event_counter + 1:04d}"
+            return self._inject_event_unlocked(event_type, segment_id)
 
-            if event_type == "crowd":
-                self._risk_boosts[segment.id] = {"crowd": 0.38, "health": 0.0, "until": self._tick + 35}
-                level, title = "warning", "检测到人群聚集趋势"
-                message = f"{segment.name}的人群密度持续上升，已提高聚集监测优先级。"
-            elif event_type == "fall":
-                self._risk_boosts[segment.id] = {"crowd": 0.05, "health": 0.42, "until": self._tick + 45}
-                level, title = "critical", "疑似运动员跌倒"
-                message = f"{segment.name}发现疑似跌倒，已请求无人机近距复核。"
-                if athlete:
-                    athlete.status = "fallen"
-                    athlete.heart_rate = 186
-            else:
-                self._risk_boosts[segment.id] = {"crowd": 0.0, "health": 0.34, "until": self._tick + 40}
-                level, title = "warning", "穿戴设备体征异常"
-                message = f"{segment.name}出现持续高心率，已提高个体安全监测优先级。"
-                if athlete:
-                    athlete.status = "warning"
-                    athlete.heart_rate = 192
-
-            alert = AlertState(
-                id=alert_id,
+    def _append_stage_alert(self, event: dict) -> None:
+        self._event_counter += 1
+        self.alerts.append(
+            AlertState(
+                id=f"EVT-{self._event_counter + 1:04d}",
                 created_at=datetime.now(timezone.utc),
-                level=level,
-                event_type=event_type,
-                title=title,
-                message=message,
-                segment_id=segment.id,
-                athlete_id=athlete.id if athlete and event_type != "crowd" else None,
+                level="info",
+                event_type="system",
+                title=event.get("title", "演示阶段更新"),
+                message=event.get("expected_system_action", "自动演示进入下一阶段。"),
+                segment_id=event.get("segment_id", "S1"),
             )
-            self.alerts.append(alert)
-            self._recalculate_segments()
-            return alert
+        )
+
+    def _run_timeline_events(self) -> None:
+        for index, event in enumerate(self.timeline):
+            if index in self._triggered_timeline_indices:
+                continue
+            if int(event.get("demo_second", 0)) > self._demo_elapsed_seconds:
+                break
+
+            event_type = event.get("type", "stage")
+            if event_type in {"crowd", "fall", "vital"}:
+                synthetic_reading = event.get("synthetic_reading", {})
+                self._inject_event_unlocked(
+                    event_type,
+                    event.get("segment_id"),
+                    athlete_id=event.get("athlete_id"),
+                    title_override=event.get("title"),
+                    message_override=event.get("expected_system_action"),
+                    heart_rate_override=synthetic_reading.get("heart_rate_bpm"),
+                )
+            else:
+                self._append_stage_alert(event)
+
+            self._triggered_timeline_indices.add(index)
+            self._current_timeline_title = event.get("title", "演示阶段更新")
+            self._current_timeline_segment_id = event.get("segment_id")
 
     async def acknowledge_alert(self, alert_id: str) -> AlertState | None:
         async with self._lock:
@@ -442,6 +557,12 @@ class MarathonSimulation:
                 self._reset_state()
                 self._running = False
                 self.race.status = "paused"
+            elif action == "auto_start":
+                self._reset_state()
+                self._auto_demo_enabled = True
+                self._running = True
+                self.race.status = "running"
+                self._run_timeline_events()
             elif action == "pause":
                 self._running = False
                 self.race.status = "paused"
