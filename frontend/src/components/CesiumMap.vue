@@ -7,11 +7,11 @@ import {
   Color,
   ConstantProperty,
   EllipsoidTerrainProvider,
-  HeadingPitchRoll,
   HorizontalOrigin,
   LabelStyle,
   NearFarScalar,
   PolylineGlowMaterialProperty,
+  Rectangle,
   ScreenSpaceEventHandler,
   ScreenSpaceEventType,
   VerticalOrigin,
@@ -257,10 +257,15 @@ function renderSnapshot() {
 function focusSegment(segmentId) {
   const segment = props.snapshot?.segments.find((item) => item.id === segmentId)
   if (!segment || !viewer) return
-  const midpoint = segment.coordinates[Math.floor(segment.coordinates.length / 2)]
+  const longitudes = segment.coordinates.map((coordinate) => coordinate[0])
+  const latitudes = segment.coordinates.map((coordinate) => coordinate[1])
   viewer.camera.flyTo({
-    destination: Cartesian3.fromDegrees(midpoint[0], midpoint[1], 1300),
-    orientation: new HeadingPitchRoll(0, -Math.PI / 2.7, 0),
+    destination: Rectangle.fromDegrees(
+      Math.min(...longitudes) - 0.002,
+      Math.min(...latitudes) - 0.002,
+      Math.max(...longitudes) + 0.002,
+      Math.max(...latitudes) + 0.002
+    ),
     duration: 0.8
   })
 }
@@ -296,8 +301,7 @@ onMounted(() => {
   viewer.scene.globe.showGroundAtmosphere = false
   viewer.scene.fog.enabled = false
   viewer.camera.setView({
-    destination: Cartesian3.fromDegrees(114.365, 30.529, 4300),
-    orientation: new HeadingPitchRoll(0, -Math.PI / 2.45, 0)
+    destination: Rectangle.fromDegrees(114.343, 30.513, 114.387, 30.544)
   })
 
   clickHandler = new ScreenSpaceEventHandler(viewer.scene.canvas)
