@@ -246,6 +246,9 @@ class MarathonSimulation:
                 battery_percent=96,
                 task="起跑区人群密度巡检",
                 target_segment_id="S1",
+                status="patrol",
+                eta_seconds=0,
+                camera_mode="广角人群巡检",
             ),
             DroneState(
                 id="UAV-02",
@@ -256,6 +259,9 @@ class MarathonSimulation:
                 battery_percent=91,
                 task="后程个体安全巡检",
                 target_segment_id="S4",
+                status="patrol",
+                eta_seconds=0,
+                camera_mode="异常步态识别",
             ),
         ]
         self.alerts = [
@@ -369,16 +375,37 @@ class MarathonSimulation:
             key=lambda item: max(item.crowd_risk, item.health_risk),
             reverse=True,
         )
+        urgent_alert = next(
+            (alert for alert in reversed(self.alerts) if alert.status == "new" and alert.level == "critical"),
+            None,
+        )
+        urgent_segment = (
+            next((segment for segment in self.segments if segment.id == urgent_alert.segment_id), None)
+            if urgent_alert
+            else None
+        )
         for index, drone in enumerate(self.drones):
-            target = ranked_segments[index % len(ranked_segments)]
+            target = urgent_segment if index == 0 and urgent_segment else ranked_segments[index % len(ranked_segments)]
             midpoint = target.coordinates[len(target.coordinates) // 2]
             offset = 0.0007 * math.sin(self._tick / 5 + index * math.pi)
-            drone.longitude = midpoint[0] + offset
-            drone.latitude = midpoint[1] + offset / 2
+            destination_lon = midpoint[0] + offset
+            destination_lat = midpoint[1] + offset / 2
+            distance_degree = math.hypot(destination_lon - drone.longitude, destination_lat - drone.latitude)
+            movement_ratio = 0.34 if index == 0 and urgent_segment else 0.2
+            drone.longitude += (destination_lon - drone.longitude) * movement_ratio
+            drone.latitude += (destination_lat - drone.latitude) * movement_ratio
             drone.altitude_m = round(78 + 10 * math.sin(self._tick / 9 + index), 1)
             drone.battery_percent = round(max(12, drone.battery_percent - 0.025), 1)
             drone.target_segment_id = target.id
-            drone.task = f"{target.name} · {target.focus_label}"
+            drone.eta_seconds = max(0, int(distance_degree / 0.00028))
+            if index == 0 and urgent_segment:
+                drone.status = "dispatch"
+                drone.task = f"紧急调度 · {target.name}跌倒复核"
+                drone.camera_mode = "近距目标跟踪"
+            else:
+                drone.status = "patrol"
+                drone.task = f"{target.name} · {target.focus_label}"
+                drone.camera_mode = "广角人群巡检" if target.focus == "crowd" else "个体安全识别"
 
     async def step(self) -> PlatformSnapshot:
         async with self._lock:
@@ -510,6 +537,7 @@ class MarathonSimulation:
         )
         self.alerts.append(alert)
         self._recalculate_segments()
+        self._update_drones()
         return alert
 
     async def inject_event(self, event_type: str, segment_id: str | None) -> AlertState:

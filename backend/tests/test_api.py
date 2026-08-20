@@ -21,6 +21,8 @@ def test_snapshot_contains_platform_modules() -> None:
         assert 70 <= payload["athletes"][0]["blood_oxygen"] <= 100
         assert 0 <= payload["athletes"][0]["fatigue_percent"] <= 100
         assert payload["athletes"][0]["group"] in {"竞速组", "大众组", "体验组"}
+        assert payload["drones"][0]["status"] in {"patrol", "dispatch"}
+        assert payload["drones"][0]["camera_mode"]
         assert payload["drones"]
 
 

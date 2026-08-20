@@ -26,6 +26,7 @@ const props = defineProps({
 
 const emit = defineEmits(['select-segment', 'select-athlete'])
 const container = ref(null)
+const selectedDroneId = ref('UAV-01')
 let viewer = null
 let clickHandler = null
 const segmentEntities = new Map()
@@ -56,6 +57,17 @@ const selectedRisk = computed(() => {
 const selectedAthlete = computed(() => (
   props.snapshot?.athletes.find((athlete) => athlete.id === props.selectedAthleteId) ?? null
 ))
+
+const selectedDrone = computed(() => (
+  props.snapshot?.drones.find((drone) => drone.id === selectedDroneId.value)
+  ?? props.snapshot?.drones[0]
+  ?? null
+))
+
+const droneTargetName = computed(() => {
+  const targetId = selectedDrone.value?.target_segment_id
+  return props.snapshot?.segments.find((segment) => segment.id === targetId)?.name ?? targetId ?? '等待任务'
+})
 
 const athleteDetail = computed(() => {
   const athlete = selectedAthlete.value
@@ -199,15 +211,17 @@ function renderAthletes(athletes) {
 function renderDrones(drones) {
   for (const drone of drones) {
     let entity = droneEntities.get(drone.id)
+    const selected = drone.id === selectedDrone.value?.id
     if (!entity) {
       entity = viewer.entities.add({
         id: `drone-${drone.id}`,
         position: Cartesian3.fromDegrees(drone.longitude, drone.latitude, drone.altitude_m),
+        properties: { droneId: drone.id },
         point: {
-          pixelSize: 12,
-          color: Color.fromCssColorString('#49bfff'),
+          pixelSize: selected ? 16 : 12,
+          color: drone.status === 'dispatch' ? Color.fromCssColorString('#ff365f') : Color.fromCssColorString('#49bfff'),
           outlineColor: Color.WHITE,
-          outlineWidth: 2,
+          outlineWidth: selected ? 4 : 2,
           disableDepthTestDistance: Number.POSITIVE_INFINITY
         },
         label: {
@@ -225,6 +239,9 @@ function renderDrones(drones) {
       droneEntities.set(drone.id, entity)
     } else {
       entity.position = new ConstantProperty(Cartesian3.fromDegrees(drone.longitude, drone.latitude, drone.altitude_m))
+      entity.point.pixelSize = new ConstantProperty(selected ? 16 : 12)
+      entity.point.color = new ConstantProperty(drone.status === 'dispatch' ? Color.fromCssColorString('#ff365f') : Color.fromCssColorString('#49bfff'))
+      entity.point.outlineWidth = new ConstantProperty(selected ? 4 : 2)
       entity.label.text = new ConstantProperty(`◆ ${drone.name} · ${Math.round(drone.battery_percent)}%`)
     }
   }
@@ -250,6 +267,7 @@ function focusSegment(segmentId) {
 
 watch(() => props.snapshot, renderSnapshot, { deep: true })
 watch(() => props.selectedAthleteId, renderSnapshot)
+watch(selectedDroneId, renderSnapshot)
 watch(
   () => props.selectedSegmentId,
   (value, previous) => {
@@ -286,8 +304,11 @@ onMounted(() => {
   clickHandler.setInputAction((movement) => {
     const picked = viewer.scene.pick(movement.position)
     const athleteId = picked?.id?.properties?.athleteId?.getValue()
+    const droneId = picked?.id?.properties?.droneId?.getValue()
     const segmentId = picked?.id?.properties?.segmentId?.getValue()
-    if (athleteId) {
+    if (droneId) {
+      selectedDroneId.value = droneId
+    } else if (athleteId) {
       emit('select-athlete', athleteId)
     } else if (segmentId) {
       emit('select-segment', segmentId)
@@ -314,6 +335,37 @@ onBeforeUnmount(() => {
       <strong>{{ selectedRisk.label }}</strong>
       <b>{{ selectedRisk.percent }}%</b>
     </div>
+    <section v-if="selectedDrone" class="drone-monitor-card" :class="selectedDrone.status">
+      <div class="drone-monitor-heading">
+        <div>
+          <span>UAV COOPERATIVE MONITORING</span>
+          <strong>无人机协同监控</strong>
+        </div>
+        <b>{{ selectedDrone.status === 'dispatch' ? '紧急调度' : '自主巡航' }}</b>
+      </div>
+      <div class="drone-tabs">
+        <button
+          v-for="drone in snapshot.drones"
+          :key="drone.id"
+          :class="{ selected: drone.id === selectedDrone.id }"
+          @click="selectedDroneId = drone.id"
+        >{{ drone.id }}</button>
+      </div>
+      <div class="simulated-feed">
+        <div class="feed-grid"></div>
+        <div class="feed-reticle"><i></i><i></i></div>
+        <div class="feed-scanline"></div>
+        <span><i></i> SIMULATED LIVE FEED</span>
+        <strong>{{ droneTargetName }}</strong>
+        <small>{{ selectedDrone.camera_mode }}</small>
+      </div>
+      <div class="drone-metrics">
+        <div><span>高度</span><b>{{ Math.round(selectedDrone.altitude_m) }} m</b></div>
+        <div><span>电量</span><b>{{ Math.round(selectedDrone.battery_percent) }}%</b></div>
+        <div><span>预计到达</span><b>{{ selectedDrone.eta_seconds > 0 ? `${selectedDrone.eta_seconds} 秒` : '已抵达' }}</b></div>
+      </div>
+      <p>{{ selectedDrone.task }}</p>
+    </section>
     <article v-if="athleteDetail" class="athlete-detail-card" :class="athleteDetail.riskClass">
       <div class="athlete-card-heading">
         <div>

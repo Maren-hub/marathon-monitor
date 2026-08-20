@@ -186,6 +186,47 @@ button { font: inherit; }
 .map-risk-card.high strong, .map-risk-card.high b { color: #ff914d; }
 .map-risk-card.critical { border-color: rgba(255,54,95,.5); box-shadow: 0 0 20px rgba(255,54,95,.12); }
 .map-risk-card.critical strong, .map-risk-card.critical b { color: var(--critical); }
+.drone-monitor-card {
+  position: absolute;
+  z-index: 5;
+  left: 16px;
+  bottom: 57px;
+  width: 258px;
+  padding: 12px;
+  border: 1px solid rgba(73,191,255,.3);
+  border-radius: 11px;
+  color: #e8f2f8;
+  background: rgba(5,18,28,.94);
+  box-shadow: 0 16px 45px rgba(0,0,0,.35);
+  backdrop-filter: blur(14px);
+}
+.drone-monitor-card.dispatch { border-color: rgba(255,54,95,.55); box-shadow: 0 16px 45px rgba(0,0,0,.35), 0 0 24px rgba(255,54,95,.12); }
+.drone-monitor-heading { display: flex; align-items: flex-start; justify-content: space-between; }
+.drone-monitor-heading span { display: block; margin-bottom: 3px; color: #5e849b; font-size: 7px; letter-spacing: .12em; }
+.drone-monitor-heading strong { font-size: 12px; }
+.drone-monitor-heading b { padding: 3px 6px; border-radius: 4px; color: var(--teal); background: rgba(52,214,199,.09); font-size: 8px; }
+.dispatch .drone-monitor-heading b { color: var(--critical); background: rgba(255,54,95,.11); }
+.drone-tabs { display: flex; gap: 5px; margin: 8px 0; }
+.drone-tabs button { padding: 3px 7px; border: 1px solid var(--line); border-radius: 5px; color: var(--muted); background: rgba(255,255,255,.03); cursor: pointer; font-size: 8px; }
+.drone-tabs button.selected { color: var(--blue); border-color: rgba(73,191,255,.38); background: rgba(73,191,255,.09); }
+.simulated-feed { position: relative; height: 92px; overflow: hidden; border: 1px solid rgba(73,191,255,.2); border-radius: 7px; background: radial-gradient(circle at 56% 48%, rgba(73,191,255,.16), transparent 7%), linear-gradient(155deg, #173b49, #071721 65%); }
+.feed-grid { position: absolute; inset: 0; opacity: .18; background-image: linear-gradient(rgba(73,191,255,.22) 1px, transparent 1px), linear-gradient(90deg, rgba(73,191,255,.22) 1px, transparent 1px); background-size: 18px 18px; }
+.feed-reticle { position: absolute; left: 56%; top: 48%; width: 31px; height: 31px; border: 1px solid rgba(73,191,255,.65); border-radius: 50%; transform: translate(-50%,-50%); }
+.feed-reticle::before, .feed-reticle::after { content: ''; position: absolute; background: rgba(73,191,255,.65); }
+.feed-reticle::before { width: 43px; height: 1px; left: -7px; top: 14px; }
+.feed-reticle::after { width: 1px; height: 43px; left: 14px; top: -7px; }
+.feed-scanline { position: absolute; left: 0; right: 0; height: 1px; background: rgba(52,214,199,.8); box-shadow: 0 0 8px var(--teal); animation: feed-scan 2.2s linear infinite; }
+@keyframes feed-scan { from { top: 0; } to { top: 100%; } }
+.simulated-feed > span { position: absolute; top: 6px; left: 7px; display: flex; align-items: center; gap: 4px; color: #89a8b9; font-size: 6px; letter-spacing: .1em; }
+.simulated-feed > span i { width: 5px; height: 5px; border-radius: 50%; background: var(--critical); box-shadow: 0 0 7px var(--critical); }
+.simulated-feed > strong { position: absolute; left: 7px; bottom: 16px; font-size: 10px; }
+.simulated-feed > small { position: absolute; left: 7px; bottom: 6px; color: #7f9aac; font-size: 7px; }
+.drone-metrics { display: grid; grid-template-columns: repeat(3,1fr); gap: 5px; margin-top: 8px; }
+.drone-metrics div { padding: 6px; border: 1px solid var(--line); border-radius: 6px; background: rgba(14,37,52,.5); }
+.drone-metrics span { display: block; margin-bottom: 3px; color: var(--muted); font-size: 7px; }
+.drone-metrics b { color: #dff8ff; font-size: 9px; }
+.drone-monitor-card > p { margin: 8px 0 0; color: var(--blue); font-size: 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.drone-monitor-card.dispatch > p { color: var(--critical); }
 .athlete-detail-card {
   position: absolute;
   z-index: 5;

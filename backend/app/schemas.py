@@ -59,6 +59,9 @@ class DroneState(BaseModel):
     battery_percent: float
     task: str
     target_segment_id: str
+    status: Literal["patrol", "dispatch"] = "patrol"
+    eta_seconds: int = 0
+    camera_mode: str = "广角巡检"
 
 
 class AlertState(BaseModel):
