@@ -38,11 +38,14 @@ class SegmentState(BaseModel):
 class AthleteState(BaseModel):
     id: str
     bib: str
+    group: str
     longitude: float
     latitude: float
     distance_km: float
     pace_min_km: float
     heart_rate: int
+    blood_oxygen: int = Field(ge=70, le=100)
+    fatigue_percent: int = Field(ge=0, le=100)
     status: AthleteStatus
     segment_id: str
 
@@ -56,6 +59,9 @@ class DroneState(BaseModel):
     battery_percent: float
     task: str
     target_segment_id: str
+    status: Literal["patrol", "dispatch"] = "patrol"
+    eta_seconds: int = 0
+    camera_mode: str = "广角巡检"
 
 
 class AlertState(BaseModel):
@@ -68,6 +74,13 @@ class AlertState(BaseModel):
     segment_id: str
     athlete_id: str | None = None
     status: Literal["new", "acknowledged", "resolved"] = "new"
+    handling_action: Literal["pending", "acknowledge", "uav_review", "medical_dispatch", "staff_dispatch"] = "pending"
+    assigned_unit: str | None = None
+    handling_note: str | None = None
+    acknowledged_at: datetime | None = None
+    resolved_at: datetime | None = None
+    response_seconds: int | None = None
+    resolution_seconds: int | None = None
 
 
 class PlatformStats(BaseModel):
@@ -90,6 +103,27 @@ class DemoTimelineState(BaseModel):
     completed: bool = False
 
 
+class SegmentReviewSummary(BaseModel):
+    id: str
+    name: str
+    peak_athletes: int
+    peak_risk_percent: int = Field(ge=0, le=100)
+    event_count: int
+
+
+class ReviewSummary(BaseModel):
+    total_events: int
+    resolved_events: int
+    completion_rate_percent: int = Field(ge=0, le=100)
+    average_response_seconds: int | None = None
+    average_resolution_seconds: int | None = None
+    drone_dispatches: int
+    event_counts: dict[str, int]
+    highest_risk_segment_id: str
+    busiest_segment_id: str
+    segments: list[SegmentReviewSummary]
+
+
 class PlatformSnapshot(BaseModel):
     generated_at: datetime
     race: RaceSummary
@@ -99,11 +133,16 @@ class PlatformSnapshot(BaseModel):
     alerts: list[AlertState]
     stats: PlatformStats
     demo: DemoTimelineState
+    review: ReviewSummary
 
 
 class SimulationEventRequest(BaseModel):
     event_type: Literal["crowd", "fall", "vital"]
     segment_id: str | None = None
+
+
+class AlertActionRequest(BaseModel):
+    action: Literal["acknowledge", "uav_review", "medical_dispatch", "staff_dispatch", "resolve"]
 
 
 class SimulationControlRequest(BaseModel):

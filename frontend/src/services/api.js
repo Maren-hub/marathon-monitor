@@ -25,7 +25,12 @@ export const platformApi = {
       body: JSON.stringify({ action })
     }),
   acknowledge: (alertId) =>
-    request(`/api/alerts/${alertId}/acknowledge`, { method: 'POST' })
+    request(`/api/alerts/${alertId}/acknowledge`, { method: 'POST' }),
+  alertAction: (alertId, action) =>
+    request(`/api/alerts/${alertId}/action`, {
+      method: 'POST',
+      body: JSON.stringify({ action })
+    })
 }
 
 export function liveSocketUrl() {
@@ -33,4 +38,3 @@ export function liveSocketUrl() {
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
   return `${protocol}//${window.location.host}/ws/live`
 }
-

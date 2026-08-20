@@ -6,7 +6,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
-from .schemas import PlatformSnapshot, SimulationControlRequest, SimulationEventRequest
+from .schemas import AlertActionRequest, PlatformSnapshot, SimulationControlRequest, SimulationEventRequest
 from .simulation import MarathonSimulation
 
 
@@ -89,6 +89,14 @@ async def acknowledge_alert(alert_id: str):
     return alert
 
 
+@app.post("/api/alerts/{alert_id}/action")
+async def handle_alert(alert_id: str, request: AlertActionRequest):
+    alert = await simulation.handle_alert_action(alert_id, request.action)
+    if alert is None:
+        raise HTTPException(status_code=404, detail="报警记录不存在")
+    return alert
+
+
 @app.websocket("/ws/live")
 async def live_updates(websocket: WebSocket) -> None:
     await hub.connect(websocket)
@@ -99,4 +107,3 @@ async def live_updates(websocket: WebSocket) -> None:
             await websocket.receive_text()
     except WebSocketDisconnect:
         hub.disconnect(websocket)
-
