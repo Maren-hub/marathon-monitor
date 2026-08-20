@@ -12,12 +12,15 @@ elseif (Get-Command python -ErrorAction SilentlyContinue) {
     $PythonCommand = "python"
 }
 else {
-    throw "Python was not found. Install Python 3.12 or 3.13 and add it to PATH."
+    throw "Python was not found. Install Python 3.11 or newer and add it to PATH."
 }
 
 if (Test-Path $LocalNpm) {
     $NpmCommand = $LocalNpm
     $env:Path = "$LocalNodeRoot;$env:Path"
+}
+elseif (Get-Command npm.cmd -ErrorAction SilentlyContinue) {
+    $NpmCommand = "npm.cmd"
 }
 elseif (Get-Command npm -ErrorAction SilentlyContinue) {
     $NpmCommand = "npm"

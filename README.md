@@ -1,6 +1,6 @@
 # 马拉松智能监控平台原型
 
-这是一个面向大创比赛的初步平台骨架，使用：
+这是一个面向大创比赛的可运行平台原型。仓库包含完整前端、后端、合成赛事数据、测试、启动脚本和设计说明。
 
 - **FastAPI / Python**：后台接口、模拟器、风险计算和实时推送；
 - **Vue 3 / Vite**：监控平台界面；
@@ -11,13 +11,14 @@
 ## 当前已经实现
 
 - 五段式42.195公里逻辑赛道；
-- 36名匿名模拟运动员及心率、配速和位置；
+- 120名匿名模拟运动员及心率、配速和位置；
 - 两架模拟无人机及电量、任务和位置；
 - 每个赛段的聚集风险、健康风险和监测重点；
 - 聚集优先、个体安全优先、综合监测三种任务模式；
 - 模拟聚集、跌倒、体征异常；
 - 报警展示、定位和确认处置；
-- 模拟推演的暂停、继续和重置；
+- 模拟推演的暂停、继续和重置，重置后停在起点等待开始；
+- 从 `data/demo_scenario.json` 读取赛事名称、人数、天气、速度和赛段风险；
 - FastAPI自动接口文档和基础测试。
 
 ## 目录结构
@@ -36,24 +37,37 @@ marathon monitor/
 │  ├─ src/composables/    # 实时连接逻辑
 │  ├─ src/services/       # 后端接口封装
 │  └─ package.json
-├─ docs/architecture.md   # 架构与后续扩展说明
+├─ data/demo_scenario.json # 可编辑的合成赛事配置
+├─ docs/                  # 架构、个人任务书和团队协作说明
 ├─ scripts/               # Windows安装和启动脚本
 └─ app.py                 # 后端快捷入口
 ```
+
+## 新电脑首次下载
+
+在准备存放项目的目录打开 PowerShell，逐条运行：
+
+```powershell
+git clone https://github.com/Maren-hub/marathon-monitor.git
+cd marathon-monitor
+powershell -ExecutionPolicy Bypass -File .\scripts\setup.ps1
+```
+
+不要一次把多条命令粘贴到同一行。每条命令执行完成后再执行下一条。
 
 ## 首次运行前
 
 Windows电脑需要安装：
 
-1. Python 3.12或3.13，安装时勾选 **Add Python to PATH**；
+1. Python 3.11或更新版本，安装时勾选 **Add Python to PATH**；
 2. 当前 Node.js LTS；
-3. 推荐使用 Visual Studio Code。
+3. Git for Windows；
+4. 推荐使用 Visual Studio Code。
 
 打开 PowerShell，进入本项目目录后运行：
 
 ```powershell
-Set-ExecutionPolicy -Scope Process Bypass
-.\scripts\setup.ps1
+powershell -ExecutionPolicy Bypass -File .\scripts\setup.ps1
 ```
 
 该脚本会在项目内创建 `.venv`，并安装后端与前端依赖。
@@ -63,15 +77,13 @@ Set-ExecutionPolicy -Scope Process Bypass
 打开第一个PowerShell窗口：
 
 ```powershell
-Set-ExecutionPolicy -Scope Process Bypass
-.\scripts\start-backend.ps1
+powershell -ExecutionPolicy Bypass -File .\scripts\start-backend.ps1
 ```
 
 打开第二个PowerShell窗口：
 
 ```powershell
-Set-ExecutionPolicy -Scope Process Bypass
-.\scripts\start-frontend.ps1
+powershell -ExecutionPolicy Bypass -File .\scripts\start-frontend.ps1
 ```
 
 访问：
@@ -88,6 +100,8 @@ Set-ExecutionPolicy -Scope Process Bypass
 4. 查看该赛段风险与监测任务自动变化；
 5. 查看无人机任务变化和右侧报警；
 6. 点击报警定位赛段并确认处置。
+
+若要修改赛事名称、模拟人数、天气和演示时间线，请编辑 `data/demo_scenario.json`，保存后在平台点击“重置”重新载入。
 
 这能直接展示项目的核心想法：系统不是全程采用相同监测方式，而是根据赛段状态自动决定当前重点监测什么。
 
@@ -111,3 +125,8 @@ Set-ExecutionPolicy -Scope Process Bypass
 
 架构细节见 [docs/architecture.md](docs/architecture.md)。
 
+## 团队协作
+
+目前尚未确定成员分工，因此所有成员先完成“克隆、安装、启动、测试”即可，暂时不要直接修改 `main`。确定分工后再为每项任务建立独立分支并通过 Pull Request 合并。
+
+详细步骤见 [团队协作与新电脑运行指南](docs/团队协作与新电脑运行指南.md)。
