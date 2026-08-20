@@ -20,10 +20,11 @@ import {
 
 const props = defineProps({
   snapshot: { type: Object, default: null },
-  selectedSegmentId: { type: String, default: '' }
+  selectedSegmentId: { type: String, default: '' },
+  selectedAthleteId: { type: String, default: '' }
 })
 
-const emit = defineEmits(['select-segment'])
+const emit = defineEmits(['select-segment', 'select-athlete'])
 const container = ref(null)
 let viewer = null
 let clickHandler = null
@@ -51,6 +52,34 @@ const selectedRisk = computed(() => {
   const risk = segmentRisk(segment)
   return { ...risk, percent: Math.round(Math.max(segment.crowd_risk, segment.health_risk) * 100) }
 })
+
+const selectedAthlete = computed(() => (
+  props.snapshot?.athletes.find((athlete) => athlete.id === props.selectedAthleteId) ?? null
+))
+
+const athleteDetail = computed(() => {
+  const athlete = selectedAthlete.value
+  if (!athlete) return null
+  const statusMap = {
+    fallen: ['critical', '疑似跌倒'],
+    warning: ['warning', '体征异常'],
+    finished: ['finished', '已完赛'],
+    normal: ['normal', '状态正常']
+  }
+  let [riskClass, riskLabel] = statusMap[athlete.status] ?? statusMap.normal
+  if (athlete.status === 'normal' && (athlete.heart_rate >= 180 || athlete.blood_oxygen <= 93)) {
+    riskClass = 'warning'
+    riskLabel = '需要关注'
+  }
+  const progress = Math.min(100, Math.round(athlete.distance_km / (props.snapshot?.race.total_distance_km || 42.195) * 100))
+  return { ...athlete, riskClass, riskLabel, progress }
+})
+
+function formatPace(value) {
+  const minutes = Math.floor(value)
+  const seconds = Math.round((value - minutes) * 60)
+  return `${minutes}'${String(seconds).padStart(2, '0')}\"/km`
+}
 
 function athleteColor(status) {
   if (status === 'fallen') return Color.fromCssColorString('#ff365f')
@@ -121,20 +150,22 @@ function renderAthletes(athletes) {
     activeIds.add(athlete.id)
     let entity = athleteEntities.get(athlete.id)
     const abnormal = athlete.status === 'fallen' || athlete.status === 'warning'
+    const selected = athlete.id === props.selectedAthleteId
     if (!entity) {
       entity = viewer.entities.add({
         id: `athlete-${athlete.id}`,
         position: Cartesian3.fromDegrees(athlete.longitude, athlete.latitude, 12),
+        properties: { athleteId: athlete.id },
         point: {
-          pixelSize: abnormal ? 11 : 5,
+          pixelSize: selected ? 14 : abnormal ? 11 : 5,
           color: athleteColor(athlete.status),
-          outlineColor: Color.fromCssColorString('#07131f'),
-          outlineWidth: 2,
+          outlineColor: selected ? Color.fromCssColorString('#49bfff') : Color.fromCssColorString('#07131f'),
+          outlineWidth: selected ? 4 : 2,
           disableDepthTestDistance: Number.POSITIVE_INFINITY
         },
         label: {
-          text: abnormal ? `${athlete.bib} · ${athlete.heart_rate} bpm` : '',
-          show: abnormal,
+          text: abnormal || selected ? `${athlete.bib} · ${athlete.heart_rate} bpm` : '',
+          show: abnormal || selected,
           font: '600 12px sans-serif',
           fillColor: athleteColor(athlete.status),
           outlineColor: Color.fromCssColorString('#07131f'),
@@ -149,9 +180,11 @@ function renderAthletes(athletes) {
     } else {
       entity.position = new ConstantProperty(Cartesian3.fromDegrees(athlete.longitude, athlete.latitude, 12))
       entity.point.color = new ConstantProperty(athleteColor(athlete.status))
-      entity.point.pixelSize = new ConstantProperty(abnormal ? 11 : 5)
-      entity.label.show = new ConstantProperty(abnormal)
-      entity.label.text = new ConstantProperty(abnormal ? `${athlete.bib} · ${athlete.heart_rate} bpm` : '')
+      entity.point.pixelSize = new ConstantProperty(selected ? 14 : abnormal ? 11 : 5)
+      entity.point.outlineColor = new ConstantProperty(selected ? Color.fromCssColorString('#49bfff') : Color.fromCssColorString('#07131f'))
+      entity.point.outlineWidth = new ConstantProperty(selected ? 4 : 2)
+      entity.label.show = new ConstantProperty(abnormal || selected)
+      entity.label.text = new ConstantProperty(abnormal || selected ? `${athlete.bib} · ${athlete.heart_rate} bpm` : '')
       entity.label.fillColor = new ConstantProperty(athleteColor(athlete.status))
     }
   }
@@ -216,6 +249,7 @@ function focusSegment(segmentId) {
 }
 
 watch(() => props.snapshot, renderSnapshot, { deep: true })
+watch(() => props.selectedAthleteId, renderSnapshot)
 watch(
   () => props.selectedSegmentId,
   (value, previous) => {
@@ -251,8 +285,13 @@ onMounted(() => {
   clickHandler = new ScreenSpaceEventHandler(viewer.scene.canvas)
   clickHandler.setInputAction((movement) => {
     const picked = viewer.scene.pick(movement.position)
+    const athleteId = picked?.id?.properties?.athleteId?.getValue()
     const segmentId = picked?.id?.properties?.segmentId?.getValue()
-    if (segmentId) emit('select-segment', segmentId)
+    if (athleteId) {
+      emit('select-athlete', athleteId)
+    } else if (segmentId) {
+      emit('select-segment', segmentId)
+    }
   }, ScreenSpaceEventType.LEFT_CLICK)
   renderSnapshot()
 })
@@ -275,6 +314,31 @@ onBeforeUnmount(() => {
       <strong>{{ selectedRisk.label }}</strong>
       <b>{{ selectedRisk.percent }}%</b>
     </div>
+    <article v-if="athleteDetail" class="athlete-detail-card" :class="athleteDetail.riskClass">
+      <div class="athlete-card-heading">
+        <div>
+          <span>ATHLETE DIGITAL PROFILE</span>
+          <strong>运动员 {{ athleteDetail.bib }}</strong>
+        </div>
+        <button title="关闭" @click="$emit('select-athlete', '')">×</button>
+      </div>
+      <div class="athlete-card-tags">
+        <b>{{ athleteDetail.group }}</b>
+        <b>{{ athleteDetail.segment_id }}</b>
+        <b class="athlete-risk-label">{{ athleteDetail.riskLabel }}</b>
+      </div>
+      <div class="athlete-vitals">
+        <div><span>心率</span><strong>{{ athleteDetail.heart_rate }}</strong><small>bpm</small></div>
+        <div><span>血氧</span><strong>{{ athleteDetail.blood_oxygen }}</strong><small>%</small></div>
+        <div><span>疲劳度</span><strong>{{ athleteDetail.fatigue_percent }}</strong><small>%</small></div>
+        <div><span>当前配速</span><strong>{{ formatPace(athleteDetail.pace_min_km) }}</strong></div>
+      </div>
+      <div class="athlete-progress-row">
+        <div><span>已完成 {{ athleteDetail.distance_km.toFixed(2) }} km</span><b>{{ athleteDetail.progress }}%</b></div>
+        <div class="athlete-progress"><i :style="{ width: `${athleteDetail.progress}%` }"></i></div>
+      </div>
+      <p class="simulation-note">以上体征为原型系统生成的模拟数据</p>
+    </article>
     <div class="map-overlay legend">
       <span><i class="normal"></i>正常</span>
       <span><i class="attention"></i>关注</span>

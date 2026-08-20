@@ -38,11 +38,14 @@ class SegmentState(BaseModel):
 class AthleteState(BaseModel):
     id: str
     bib: str
+    group: str
     longitude: float
     latitude: float
     distance_km: float
     pace_min_km: float
     heart_rate: int
+    blood_oxygen: int = Field(ge=70, le=100)
+    fatigue_percent: int = Field(ge=0, le=100)
     status: AthleteStatus
     segment_id: str
 

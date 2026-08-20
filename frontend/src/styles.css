@@ -186,6 +186,42 @@ button { font: inherit; }
 .map-risk-card.high strong, .map-risk-card.high b { color: #ff914d; }
 .map-risk-card.critical { border-color: rgba(255,54,95,.5); box-shadow: 0 0 20px rgba(255,54,95,.12); }
 .map-risk-card.critical strong, .map-risk-card.critical b { color: var(--critical); }
+.athlete-detail-card {
+  position: absolute;
+  z-index: 5;
+  right: 16px;
+  bottom: 57px;
+  width: 286px;
+  padding: 13px;
+  border: 1px solid rgba(73,191,255,.3);
+  border-radius: 11px;
+  color: #e8f2f8;
+  background: rgba(5, 18, 28, .94);
+  box-shadow: 0 16px 45px rgba(0,0,0,.35);
+  backdrop-filter: blur(14px);
+}
+.athlete-detail-card.warning { border-color: rgba(255,181,71,.5); }
+.athlete-detail-card.critical { border-color: rgba(255,54,95,.55); box-shadow: 0 16px 45px rgba(0,0,0,.35), 0 0 24px rgba(255,54,95,.13); }
+.athlete-card-heading { display: flex; align-items: flex-start; justify-content: space-between; }
+.athlete-card-heading span { display: block; margin-bottom: 3px; color: #5e849b; font-size: 8px; letter-spacing: .13em; }
+.athlete-card-heading strong { font-size: 13px; }
+.athlete-card-heading button { width: 24px; height: 24px; border: 1px solid var(--line); border-radius: 6px; color: var(--muted); background: rgba(255,255,255,.03); cursor: pointer; }
+.athlete-card-tags { display: flex; gap: 5px; margin-top: 9px; }
+.athlete-card-tags b { padding: 3px 6px; border-radius: 4px; color: var(--blue); background: rgba(73,191,255,.09); font-size: 8px; font-weight: 500; }
+.athlete-card-tags .athlete-risk-label { margin-left: auto; color: var(--teal); }
+.warning .athlete-risk-label { color: var(--amber); background: rgba(255,181,71,.1); }
+.critical .athlete-risk-label { color: var(--critical); background: rgba(255,54,95,.11); }
+.athlete-vitals { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; margin-top: 10px; }
+.athlete-vitals > div { padding: 8px; border: 1px solid var(--line); border-radius: 7px; background: rgba(14,37,52,.56); }
+.athlete-vitals span { display: block; margin-bottom: 4px; color: var(--muted); font-size: 8px; }
+.athlete-vitals strong { color: #dff8ff; font-size: 14px; }
+.athlete-vitals small { margin-left: 3px; color: var(--muted); font-size: 7px; }
+.athlete-progress-row { margin-top: 10px; }
+.athlete-progress-row > div:first-child { display: flex; justify-content: space-between; margin-bottom: 5px; color: var(--muted); font-size: 8px; }
+.athlete-progress-row b { color: var(--teal); }
+.athlete-progress { height: 4px; overflow: hidden; border-radius: 4px; background: rgba(255,255,255,.07); }
+.athlete-progress i { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, var(--blue), var(--teal)); }
+.simulation-note { margin: 8px 0 0; color: #5f7d90; font-size: 7px; text-align: right; }
 .legend {
   left: 50%;
   bottom: 15px;

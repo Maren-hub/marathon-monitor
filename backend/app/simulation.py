@@ -219,15 +219,19 @@ class MarathonSimulation:
             segment = self._segment_for_distance(distance)
             longitude, latitude = self._location_for_distance(distance)
             pace = self._random.uniform(float(pace_range[0]), float(pace_range[1]))
+            group = "竞速组" if pace < 5.2 else "大众组" if pace < 7.0 else "体验组"
             self.athletes.append(
                 AthleteState(
                     id=f"A{index + 1:03d}",
                     bib=f"{bib_start + index:04d}",
+                    group=group,
                     longitude=longitude,
                     latitude=latitude,
                     distance_km=distance,
                     pace_min_km=pace,
                     heart_rate=self._random.randint(128, 158),
+                    blood_oxygen=self._random.randint(96, 99),
+                    fatigue_percent=self._random.randint(2, 8),
                     status="normal",
                     segment_id=segment.id,
                 )
@@ -353,6 +357,9 @@ class MarathonSimulation:
             exertion = athlete.distance_km / self.race.total_distance_km
             noise = self._random.randint(-3, 3)
             athlete.heart_rate = int(clamp(132 + exertion * 45 + noise, 85, 205))
+            athlete.fatigue_percent = int(clamp(exertion * 88 + max(0, athlete.pace_min_km - 6) * 3, 0, 100))
+            oxygen_penalty = 4 if athlete.status == "warning" else 7 if athlete.status == "fallen" else 0
+            athlete.blood_oxygen = int(clamp(99 - exertion * 3 - oxygen_penalty + self._random.randint(-1, 1), 84, 100))
             if athlete.status == "warning" and self._tick % 20 == 0:
                 athlete.status = "normal"
 
@@ -479,6 +486,8 @@ class MarathonSimulation:
             if athlete:
                 athlete.status = "fallen"
                 athlete.heart_rate = heart_rate_override or 186
+                athlete.blood_oxygen = min(athlete.blood_oxygen, 90)
+                athlete.fatigue_percent = max(athlete.fatigue_percent, 88)
         else:
             self._risk_boosts[segment.id] = {"crowd": 0.0, "health": 0.34, "until": self._tick + 40}
             level, title = "warning", "穿戴设备体征异常"
@@ -486,6 +495,8 @@ class MarathonSimulation:
             if athlete:
                 athlete.status = "warning"
                 athlete.heart_rate = heart_rate_override or 192
+                athlete.blood_oxygen = min(athlete.blood_oxygen, 92)
+                athlete.fatigue_percent = max(athlete.fatigue_percent, 82)
 
         alert = AlertState(
             id=alert_id,

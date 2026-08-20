@@ -11,6 +11,7 @@ import { platformApi } from './services/api'
 
 const { snapshot, connectionStatus, errorMessage, refresh } = usePlatform()
 const selectedSegmentId = ref('S1')
+const selectedAthleteId = ref('')
 const lastDemoSegmentId = ref('')
 const busy = ref(false)
 const toast = ref('')
@@ -99,7 +100,9 @@ async function acknowledge(alertId) {
       <CesiumMap
         :snapshot="snapshot"
         :selected-segment-id="selectedSegmentId"
+        :selected-athlete-id="selectedAthleteId"
         @select-segment="selectedSegmentId = $event"
+        @select-athlete="selectedAthleteId = $event"
       />
       <aside class="right-stack">
         <StrategyPanel :segment="selectedSegment" />
