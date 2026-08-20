@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import math
 import random
 from collections.abc import Awaitable, Callable
 from datetime import datetime, timezone
+from pathlib import Path
 
 from .schemas import (
     AlertState,
@@ -18,6 +20,7 @@ from .schemas import (
 
 
 PublishCallback = Callable[[dict], Awaitable[None]]
+SCENARIO_PATH = Path(__file__).resolve().parents[2] / "data" / "demo_scenario.json"
 
 
 SEGMENT_DEFINITIONS = [
@@ -94,6 +97,31 @@ SEGMENT_DEFINITIONS = [
 ]
 
 
+def load_demo_scenario() -> dict:
+    """Load the synthetic race configuration used by the prototype."""
+    with SCENARIO_PATH.open("r", encoding="utf-8") as scenario_file:
+        return json.load(scenario_file)
+
+
+def build_segment_definitions(scenario: dict) -> list[dict]:
+    """Merge editable scenario values with the prototype route geometry."""
+    configured_by_id = {item["id"]: item for item in scenario.get("segments", [])}
+    definitions: list[dict] = []
+    for default in SEGMENT_DEFINITIONS:
+        configured = configured_by_id.get(default["id"], {})
+        definitions.append(
+            {
+                **default,
+                "name": configured.get("name", default["name"]),
+                "start_km": float(configured.get("start_km", default["start_km"])),
+                "end_km": float(configured.get("end_km", default["end_km"])),
+                "base_crowd": float(configured.get("base_crowd_risk", default["base_crowd"])),
+                "base_health": float(configured.get("base_health_risk", default["base_health"])),
+            }
+        )
+    return definitions
+
+
 def clamp(value: float, minimum: float = 0.0, maximum: float = 1.0) -> float:
     return max(minimum, min(maximum, value))
 
@@ -115,6 +143,8 @@ class MarathonSimulation:
     def __init__(self) -> None:
         self._lock = asyncio.Lock()
         self._random = random.Random(20260819)
+        self.scenario: dict = {}
+        self.segment_definitions: list[dict] = []
         self._tick = 0
         self._event_counter = 0
         self._running = True
@@ -127,11 +157,23 @@ class MarathonSimulation:
         self._reset_state()
 
     def _reset_state(self) -> None:
+        self.scenario = load_demo_scenario()
+        self.segment_definitions = build_segment_definitions(self.scenario)
+        self._random.seed(20260819)
         self._tick = 0
         self._event_counter = 0
         self._risk_boosts.clear()
         self._running = True
-        self.race = RaceSummary(status="running")
+        race_config = self.scenario.get("race", {})
+        weather = race_config.get("weather", {})
+        self.race = RaceSummary(
+            name=race_config.get("name", "校园马拉松模拟赛"),
+            status="running",
+            simulation_speed=int(race_config.get("simulation_speed", 30)),
+            total_distance_km=float(race_config.get("total_distance_km", 42.195)),
+            temperature_c=float(weather.get("temperature_c", 27.6)),
+            humidity_percent=float(weather.get("humidity_percent", 68.0)),
+        )
         self.segments = [
             SegmentState(
                 id=item["id"],
@@ -145,18 +187,23 @@ class MarathonSimulation:
                 focus_label="综合监测",
                 monitoring_tasks=["人群密度", "异常步态"],
             )
-            for item in SEGMENT_DEFINITIONS
+            for item in self.segment_definitions
         ]
         self.athletes = []
-        for index in range(36):
-            distance = max(0.0, 3.6 - index * 0.09 + self._random.uniform(-0.12, 0.12))
+        participant_config = self.scenario.get("participant_generation", {})
+        participant_count = int(participant_config.get("count", 36))
+        bib_start = int(participant_config.get("bib_start", 101))
+        pace_range = participant_config.get("pace_min_km_range", [4.7, 7.2])
+        for index in range(participant_count):
+            spread_position = 3.6 * (1 - index / max(participant_count - 1, 1))
+            distance = round(max(0.0, min(3.6, spread_position + self._random.uniform(-0.04, 0.04))), 3)
             segment = self._segment_for_distance(distance)
             longitude, latitude = self._location_for_distance(distance)
-            pace = self._random.uniform(4.7, 7.2)
+            pace = self._random.uniform(float(pace_range[0]), float(pace_range[1]))
             self.athletes.append(
                 AthleteState(
                     id=f"A{index + 1:03d}",
-                    bib=f"{index + 101:04d}",
+                    bib=f"{bib_start + index:04d}",
                     longitude=longitude,
                     latitude=latitude,
                     distance_km=distance,
@@ -209,8 +256,8 @@ class MarathonSimulation:
         return self.segments[-1]
 
     def _location_for_distance(self, distance_km: float) -> tuple[float, float]:
-        segment_definition = SEGMENT_DEFINITIONS[-1]
-        for item in SEGMENT_DEFINITIONS:
+        segment_definition = self.segment_definitions[-1]
+        for item in self.segment_definitions:
             if item["start_km"] <= distance_km < item["end_km"]:
                 segment_definition = item
                 break
@@ -228,7 +275,7 @@ class MarathonSimulation:
 
         max_count = max(max(counts.values()), 1)
         for index, segment in enumerate(self.segments):
-            definition = SEGMENT_DEFINITIONS[index]
+            definition = self.segment_definitions[index]
             density_signal = counts[segment.id] / max_count
             wave = 0.04 * math.sin(self._tick / 6 + index)
             crowd_boost = 0.0
@@ -393,6 +440,8 @@ class MarathonSimulation:
         async with self._lock:
             if action == "reset":
                 self._reset_state()
+                self._running = False
+                self.race.status = "paused"
             elif action == "pause":
                 self._running = False
                 self.race.status = "paused"
@@ -409,4 +458,3 @@ class MarathonSimulation:
                 await asyncio.wait_for(stop_event.wait(), timeout=1.0)
             except TimeoutError:
                 pass
-

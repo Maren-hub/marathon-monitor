@@ -16,7 +16,8 @@ def test_snapshot_contains_platform_modules() -> None:
         assert response.status_code == 200
         payload = response.json()
         assert len(payload["segments"]) == 5
-        assert payload["athletes"]
+        assert payload["race"]["name"] == "2026校园智慧路跑模拟赛"
+        assert len(payload["athletes"]) == 120
         assert payload["drones"]
 
 
@@ -28,3 +29,12 @@ def test_can_inject_fall_event() -> None:
         )
         assert response.status_code == 200
         assert response.json()["event_type"] == "fall"
+
+
+def test_reset_pauses_race_with_all_athletes_ready() -> None:
+    with TestClient(app) as client:
+        response = client.post("/api/simulation/control", json={"action": "reset"})
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["race"]["status"] == "paused"
+        assert payload["stats"]["online_athletes"] == 120

@@ -31,7 +31,7 @@ function formatElapsed(totalSeconds = 0) {
     <div class="race-meta" v-if="snapshot">
       <div class="meta-item"><span>模拟赛时</span><strong>{{ formatElapsed(snapshot.race.elapsed_seconds) }}</strong></div>
       <div class="meta-item"><span>天气</span><strong>{{ snapshot.race.temperature_c }}℃ / {{ snapshot.race.humidity_percent }}%</strong></div>
-      <div class="meta-item"><span>在线运动员</span><strong>{{ snapshot.stats.online_athletes }}</strong></div>
+      <div class="meta-item"><span>未完赛运动员</span><strong>{{ snapshot.stats.online_athletes }}</strong></div>
       <div class="meta-item"><span>活动无人机</span><strong>{{ snapshot.stats.active_drones }}</strong></div>
       <div class="connection-pill" :class="connectionStatus">
         <i></i>{{ statusLabel }}
