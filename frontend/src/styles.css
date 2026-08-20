@@ -324,6 +324,7 @@ button { font: inherit; }
 }
 .alert-card.warning { border-left-color: var(--amber); }
 .alert-card.critical { border-left-color: var(--critical); background: rgba(74, 23, 39, 0.25); }
+.alert-card.processing { border-color: rgba(52,214,199,.22); }
 .alert-card.handled { opacity: 0.58; }
 .alert-topline, .alert-footer { justify-content: space-between; }
 .level-badge { padding: 3px 6px; border-radius: 4px; color: var(--blue); background: rgba(73,191,255,.09); font-size: 8px; }
@@ -335,6 +336,21 @@ button { font: inherit; }
 .alert-footer { margin-top: 10px; color: #678397; font-size: 9px; }
 .alert-footer button { padding: 4px 7px; border: 1px solid rgba(52,214,199,.35); border-radius: 5px; color: var(--teal); background: rgba(52,214,199,.08); cursor: pointer; font-size: 9px; }
 .handled-label { color: var(--teal); }
+.processing-label { color: var(--amber); }
+.event-flow { display: flex; align-items: center; margin-top: 10px; }
+.event-flow span { padding: 2px 5px; border: 1px solid var(--line); border-radius: 4px; color: #607f92; font-size: 7px; }
+.event-flow span.done { color: var(--teal); border-color: rgba(52,214,199,.27); background: rgba(52,214,199,.07); }
+.event-flow i { flex: 1; height: 1px; background: var(--line); }
+.handling-record { margin-top: 9px; padding: 8px; border-radius: 7px; background: rgba(52,214,199,.05); }
+.handling-record > div { display: flex; justify-content: space-between; margin-bottom: 4px; }
+.handling-record span { color: var(--muted); font-size: 7px; }
+.handling-record b { color: #b9d1de; font-size: 8px; font-weight: 500; }
+.handling-record p { margin-top: 6px; color: #7f9dac; font-size: 8px; }
+.alert-actions { display: flex; gap: 5px; margin-top: 8px; }
+.alert-actions button { flex: 1; padding: 5px 6px; border: 1px solid rgba(73,191,255,.28); border-radius: 5px; color: var(--blue); background: rgba(73,191,255,.07); cursor: pointer; font-size: 8px; }
+.alert-actions button.primary { color: var(--teal); border-color: rgba(52,214,199,.32); background: rgba(52,214,199,.08); }
+.alert-actions button.medical { color: var(--critical); border-color: rgba(255,54,95,.35); background: rgba(255,54,95,.08); }
+.alert-actions button.resolve { flex: none; margin-left: auto; padding-inline: 12px; }
 
 .control-bar { grid-column: 1 / 4; grid-row: 2; justify-content: space-between; padding: 11px 15px; }
 .selected-context { min-width: 230px; display: flex; flex-direction: column; gap: 2px; }

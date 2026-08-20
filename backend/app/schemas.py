@@ -74,6 +74,13 @@ class AlertState(BaseModel):
     segment_id: str
     athlete_id: str | None = None
     status: Literal["new", "acknowledged", "resolved"] = "new"
+    handling_action: Literal["pending", "acknowledge", "uav_review", "medical_dispatch", "staff_dispatch"] = "pending"
+    assigned_unit: str | None = None
+    handling_note: str | None = None
+    acknowledged_at: datetime | None = None
+    resolved_at: datetime | None = None
+    response_seconds: int | None = None
+    resolution_seconds: int | None = None
 
 
 class PlatformStats(BaseModel):
@@ -110,6 +117,10 @@ class PlatformSnapshot(BaseModel):
 class SimulationEventRequest(BaseModel):
     event_type: Literal["crowd", "fall", "vital"]
     segment_id: str | None = None
+
+
+class AlertActionRequest(BaseModel):
+    action: Literal["acknowledge", "uav_review", "medical_dispatch", "staff_dispatch", "resolve"]
 
 
 class SimulationControlRequest(BaseModel):

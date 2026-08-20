@@ -36,6 +36,28 @@ def test_can_inject_fall_event() -> None:
         assert response.json()["event_type"] == "fall"
 
 
+def test_alert_can_complete_response_workflow() -> None:
+    with TestClient(app) as client:
+        event = client.post(
+            "/api/simulation/events",
+            json={"event_type": "fall", "segment_id": "S3"},
+        ).json()
+        dispatch = client.post(
+            f"/api/alerts/{event['id']}/action",
+            json={"action": "medical_dispatch"},
+        )
+        assert dispatch.status_code == 200
+        assert dispatch.json()["status"] == "acknowledged"
+        assert dispatch.json()["assigned_unit"] == "医疗救援组 M-02"
+        resolved = client.post(
+            f"/api/alerts/{event['id']}/action",
+            json={"action": "resolve"},
+        )
+        assert resolved.status_code == 200
+        assert resolved.json()["status"] == "resolved"
+        assert resolved.json()["resolution_seconds"] is not None
+
+
 def test_reset_pauses_race_with_all_athletes_ready() -> None:
     with TestClient(app) as client:
         response = client.post("/api/simulation/control", json={"action": "reset"})

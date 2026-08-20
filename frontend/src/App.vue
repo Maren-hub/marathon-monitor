@@ -74,11 +74,18 @@ async function controlSimulation(action) {
   }
 }
 
-async function acknowledge(alertId) {
+async function handleAlertAction({ alertId, action }) {
   try {
-    await platformApi.acknowledge(alertId)
+    await platformApi.alertAction(alertId, action)
     await refresh()
-    showToast('报警已确认处置')
+    const labels = {
+      acknowledge: '报警信息已确认',
+      uav_review: '已派遣无人机近距复核',
+      medical_dispatch: '已派遣医疗救援组',
+      staff_dispatch: '已派遣现场保障人员',
+      resolve: '事件处置已完成'
+    }
+    showToast(labels[action] ?? '处置状态已更新')
   } catch (error) {
     showToast(`操作失败：${error.message}`)
   }
@@ -109,7 +116,7 @@ async function acknowledge(alertId) {
         <AlertPanel
           :alerts="snapshot.alerts"
           @locate="selectedSegmentId = $event"
-          @acknowledge="acknowledge"
+          @action="handleAlertAction"
         />
       </aside>
       <ControlBar

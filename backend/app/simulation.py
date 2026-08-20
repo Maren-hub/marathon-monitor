@@ -274,6 +274,11 @@ class MarathonSimulation:
                 message="当前使用模拟运动员、无人机和手环数据。",
                 segment_id="S1",
                 status="acknowledged",
+                handling_action="acknowledge",
+                assigned_unit="赛事指挥中心",
+                handling_note="系统状态已确认",
+                acknowledged_at=datetime.now(timezone.utc),
+                response_seconds=0,
             )
         ]
         self._recalculate_segments()
@@ -376,7 +381,7 @@ class MarathonSimulation:
             reverse=True,
         )
         urgent_alert = next(
-            (alert for alert in reversed(self.alerts) if alert.status == "new" and alert.level == "critical"),
+            (alert for alert in reversed(self.alerts) if alert.status != "resolved" and alert.level == "critical"),
             None,
         )
         urgent_segment = (
@@ -453,7 +458,7 @@ class MarathonSimulation:
         )
 
     def _build_snapshot(self) -> PlatformSnapshot:
-        open_alerts = sum(alert.status == "new" for alert in self.alerts)
+        open_alerts = sum(alert.status != "resolved" for alert in self.alerts)
         high_risk = sum(max(segment.crowd_risk, segment.health_risk) >= 0.72 for segment in self.segments)
         return PlatformSnapshot(
             generated_at=datetime.now(timezone.utc),
@@ -584,10 +589,41 @@ class MarathonSimulation:
             self._current_timeline_segment_id = event.get("segment_id")
 
     async def acknowledge_alert(self, alert_id: str) -> AlertState | None:
+        return await self.handle_alert_action(alert_id, "acknowledge")
+
+    async def handle_alert_action(self, alert_id: str, action: str) -> AlertState | None:
         async with self._lock:
             alert = next((item for item in self.alerts if item.id == alert_id), None)
-            if alert:
-                alert.status = "acknowledged"
+            if alert is None:
+                return None
+
+            now = datetime.now(timezone.utc)
+            if action == "resolve":
+                if alert.acknowledged_at is None:
+                    alert.acknowledged_at = now
+                    alert.response_seconds = max(0, int((now - alert.created_at).total_seconds()))
+                alert.status = "resolved"
+                alert.resolved_at = now
+                alert.resolution_seconds = max(0, int((now - alert.created_at).total_seconds()))
+                alert.handling_note = f"{alert.assigned_unit or '赛事指挥中心'}已完成处置，事件进入复盘记录。"
+                self._update_drones()
+                return alert
+
+            action_config = {
+                "acknowledge": ("赛事指挥中心", "报警信息已确认，持续跟踪现场状态。"),
+                "uav_review": ("无人机巡检一号", "无人机已转向事发赛段，执行近距复核。"),
+                "medical_dispatch": ("医疗救援组 M-02", "医疗人员已出发，准备开展现场救助。"),
+                "staff_dispatch": ("赛道保障组 R-03", "现场工作人员已前往疏导并恢复通行秩序。"),
+            }
+            assigned_unit, note = action_config.get(action, action_config["acknowledge"])
+            alert.status = "acknowledged"
+            alert.handling_action = action if action in action_config else "acknowledge"
+            alert.assigned_unit = assigned_unit
+            alert.handling_note = note
+            if alert.acknowledged_at is None:
+                alert.acknowledged_at = now
+                alert.response_seconds = max(0, int((now - alert.created_at).total_seconds()))
+            self._update_drones()
             return alert
 
     async def control(self, action: str) -> PlatformSnapshot:
