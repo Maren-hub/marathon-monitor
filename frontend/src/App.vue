@@ -10,6 +10,7 @@ import { platformApi } from './services/api'
 
 const { snapshot, connectionStatus, errorMessage, refresh } = usePlatform()
 const selectedSegmentId = ref('S1')
+const lastDemoSegmentId = ref('')
 const busy = ref(false)
 const toast = ref('')
 
@@ -21,6 +22,16 @@ watch(snapshot, (value) => {
     selectedSegmentId.value = value.segments[0]?.id ?? ''
   }
 })
+
+watch(
+  () => snapshot.value?.demo?.current_segment_id,
+  (segmentId) => {
+    if (segmentId && segmentId !== lastDemoSegmentId.value) {
+      lastDemoSegmentId.value = segmentId
+      selectedSegmentId.value = segmentId
+    }
+  }
+)
 
 function showToast(message) {
   toast.value = message
@@ -48,7 +59,12 @@ async function controlSimulation(action) {
   busy.value = true
   try {
     snapshot.value = await platformApi.control(action)
-    showToast({ start: '推演已继续', pause: '推演已暂停', reset: '模拟数据已重置' }[action])
+    showToast({
+      start: '推演已继续',
+      pause: '推演已暂停',
+      reset: '模拟数据已重置',
+      auto_start: '自动赛事演示已开始'
+    }[action])
   } catch (error) {
     showToast(`操作失败：${error.message}`)
   } finally {
@@ -93,6 +109,7 @@ async function acknowledge(alertId) {
         :selected-segment="selectedSegment"
         :running="isRunning"
         :busy="busy"
+        :demo="snapshot.demo"
         @inject="injectEvent"
         @control="controlSimulation"
       />
@@ -109,4 +126,3 @@ async function acknowledge(alertId) {
     </Transition>
   </div>
 </template>
-

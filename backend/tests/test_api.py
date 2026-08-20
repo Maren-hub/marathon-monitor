@@ -38,3 +38,14 @@ def test_reset_pauses_race_with_all_athletes_ready() -> None:
         payload = response.json()
         assert payload["race"]["status"] == "paused"
         assert payload["stats"]["online_athletes"] == 120
+
+
+def test_auto_demo_starts_from_timeline() -> None:
+    with TestClient(app) as client:
+        response = client.post("/api/simulation/control", json={"action": "auto_start"})
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["demo"]["enabled"] is True
+        assert payload["demo"]["current_title"] == "赛事开始"
+        assert payload["demo"]["next_event_title"] == "起跑后局部拥挤"
+        assert payload["demo"]["next_event_in_seconds"] == 40

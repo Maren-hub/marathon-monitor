@@ -212,6 +212,11 @@ button { font: inherit; }
 .selected-context span, .selected-context small { color: var(--muted); font-size: 9px; }
 .selected-context strong { font-size: 13px; }
 .selected-context small { color: var(--teal); }
+.demo-context { width: 270px; }
+.demo-title-row { display: flex; align-items: center; justify-content: space-between; }
+.demo-title-row b { color: var(--blue); font-size: 9px; font-weight: 600; }
+.demo-progress { width: 100%; height: 4px; overflow: hidden; border-radius: 4px; background: rgba(255,255,255,.08); }
+.demo-progress i { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, var(--blue), var(--teal)); transition: width .35s ease; }
 .control-group { gap: 8px; }
 .control-bar button {
   padding: 9px 13px;
@@ -228,6 +233,8 @@ button { font: inherit; }
 .event-button.crowd { color: var(--amber); }
 .event-button.fall { color: var(--critical); }
 .event-button.vital { color: var(--pink); }
+.auto-demo-button { color: var(--teal) !important; border-color: rgba(52,214,199,.35) !important; background: rgba(52,214,199,.08) !important; }
+.auto-demo-button.active { box-shadow: 0 0 18px rgba(52,214,199,.18); }
 .control-group.system { padding-left: 20px; border-left: 1px solid var(--line); }
 
 .error-banner { position: absolute; z-index: 10; top: 90px; left: 50%; padding: 8px 14px; border: 1px solid rgba(255,181,71,.35); border-radius: 8px; color: var(--amber); background: rgba(39,30,18,.94); transform: translateX(-50%); font-size: 11px; }
