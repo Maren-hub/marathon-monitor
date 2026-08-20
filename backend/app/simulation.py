@@ -287,12 +287,14 @@ class MarathonSimulation:
                 title="模拟系统已启动",
                 message="当前使用模拟运动员、无人机和手环数据。",
                 segment_id="S1",
-                status="acknowledged",
+                status="resolved",
                 handling_action="acknowledge",
                 assigned_unit="赛事指挥中心",
                 handling_note="系统状态已确认",
                 acknowledged_at=datetime.now(timezone.utc),
+                resolved_at=datetime.now(timezone.utc),
                 response_seconds=0,
+                resolution_seconds=0,
             )
         ]
         self._recalculate_segments()

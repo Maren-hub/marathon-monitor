@@ -45,12 +45,12 @@ function formatDuration(seconds) {
         </div>
         <h3>{{ alert.title }}</h3>
         <p>{{ alert.message }}</p>
-        <div class="event-flow">
+        <div v-if="alert.event_type !== 'system'" class="event-flow">
           <span class="done">发现</span><i></i>
           <span :class="{ done: alert.status !== 'new' }">响应</span><i></i>
           <span :class="{ done: alert.status === 'resolved' }">完成</span>
         </div>
-        <div v-if="alert.status !== 'new'" class="handling-record">
+        <div v-if="alert.status !== 'new' && alert.event_type !== 'system'" class="handling-record">
           <div><span>处置方式</span><b>{{ actionLabel[alert.handling_action] ?? '事件处置' }}</b></div>
           <div><span>负责单位</span><b>{{ alert.assigned_unit ?? '赛事指挥中心' }}</b></div>
           <div><span>响应时间</span><b>{{ formatDuration(alert.response_seconds) }}</b></div>

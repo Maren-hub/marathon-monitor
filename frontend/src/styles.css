@@ -193,8 +193,8 @@ button { font: inherit; }
   z-index: 5;
   left: 16px;
   bottom: 57px;
-  width: 258px;
-  padding: 12px;
+  width: 226px;
+  padding: 10px;
   border: 1px solid rgba(73,191,255,.3);
   border-radius: 11px;
   color: #e8f2f8;
@@ -208,10 +208,10 @@ button { font: inherit; }
 .drone-monitor-heading strong { font-size: 12px; }
 .drone-monitor-heading b { padding: 3px 6px; border-radius: 4px; color: var(--teal); background: rgba(52,214,199,.09); font-size: 8px; }
 .dispatch .drone-monitor-heading b { color: var(--critical); background: rgba(255,54,95,.11); }
-.drone-tabs { display: flex; gap: 5px; margin: 8px 0; }
+.drone-tabs { display: flex; gap: 5px; margin: 6px 0; }
 .drone-tabs button { padding: 3px 7px; border: 1px solid var(--line); border-radius: 5px; color: var(--muted); background: rgba(255,255,255,.03); cursor: pointer; font-size: 8px; }
 .drone-tabs button.selected { color: var(--blue); border-color: rgba(73,191,255,.38); background: rgba(73,191,255,.09); }
-.simulated-feed { position: relative; height: 92px; overflow: hidden; border: 1px solid rgba(73,191,255,.2); border-radius: 7px; background: radial-gradient(circle at 56% 48%, rgba(73,191,255,.16), transparent 7%), linear-gradient(155deg, #173b49, #071721 65%); }
+.simulated-feed { position: relative; height: 66px; overflow: hidden; border: 1px solid rgba(73,191,255,.2); border-radius: 7px; background: radial-gradient(circle at 56% 48%, rgba(73,191,255,.16), transparent 7%), linear-gradient(155deg, #173b49, #071721 65%); }
 .feed-grid { position: absolute; inset: 0; opacity: .18; background-image: linear-gradient(rgba(73,191,255,.22) 1px, transparent 1px), linear-gradient(90deg, rgba(73,191,255,.22) 1px, transparent 1px); background-size: 18px 18px; }
 .feed-reticle { position: absolute; left: 56%; top: 48%; width: 31px; height: 31px; border: 1px solid rgba(73,191,255,.65); border-radius: 50%; transform: translate(-50%,-50%); }
 .feed-reticle::before, .feed-reticle::after { content: ''; position: absolute; background: rgba(73,191,255,.65); }
@@ -223,11 +223,11 @@ button { font: inherit; }
 .simulated-feed > span i { width: 5px; height: 5px; border-radius: 50%; background: var(--critical); box-shadow: 0 0 7px var(--critical); }
 .simulated-feed > strong { position: absolute; left: 7px; bottom: 16px; font-size: 10px; }
 .simulated-feed > small { position: absolute; left: 7px; bottom: 6px; color: #7f9aac; font-size: 7px; }
-.drone-metrics { display: grid; grid-template-columns: repeat(3,1fr); gap: 5px; margin-top: 8px; }
-.drone-metrics div { padding: 6px; border: 1px solid var(--line); border-radius: 6px; background: rgba(14,37,52,.5); }
+.drone-metrics { display: grid; grid-template-columns: repeat(3,1fr); gap: 4px; margin-top: 6px; }
+.drone-metrics div { padding: 5px; border: 1px solid var(--line); border-radius: 6px; background: rgba(14,37,52,.5); }
 .drone-metrics span { display: block; margin-bottom: 3px; color: var(--muted); font-size: 7px; }
 .drone-metrics b { color: #dff8ff; font-size: 9px; }
-.drone-monitor-card > p { margin: 8px 0 0; color: var(--blue); font-size: 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.drone-monitor-card > p { margin: 6px 0 0; color: var(--blue); font-size: 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .drone-monitor-card.dispatch > p { color: var(--critical); }
 .athlete-detail-card {
   position: absolute;
@@ -292,7 +292,7 @@ button { font: inherit; }
   grid-template-rows: auto minmax(0, 1fr);
   gap: 12px;
 }
-.strategy-panel { padding: 14px; }
+.strategy-panel { padding: 12px 14px; }
 .strategy-heading { margin-bottom: 10px; }
 .strategy-status { display: flex; align-items: center; gap: 5px; color: var(--teal); font-size: 9px; }
 .strategy-status i { width: 6px; height: 6px; border-radius: 50%; background: var(--teal); box-shadow: 0 0 10px var(--teal); }
@@ -310,7 +310,7 @@ button { font: inherit; }
 .crowd-weight .weight-track i { background: linear-gradient(90deg, #d98932, var(--amber)); }
 .health-weight .weight-track i { background: linear-gradient(90deg, #c9496b, var(--pink)); }
 .strategy-reason { margin-top: 10px; }
-.strategy-reason p { margin: 0; color: #91aabd; font-size: 9px; line-height: 1.5; }
+.strategy-reason p { margin: 0; color: #91aabd; font-size: 9px; line-height: 1.4; }
 .strategy-tasks { margin-top: 9px; }
 .strategy-tasks div { display: flex; flex-wrap: wrap; gap: 5px; }
 .strategy-tasks b { padding: 3px 6px; border-radius: 4px; color: var(--blue); background: rgba(73,191,255,.08); font-size: 8px; font-weight: 500; }
