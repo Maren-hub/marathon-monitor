@@ -16,6 +16,8 @@ from .schemas import (
     PlatformSnapshot,
     PlatformStats,
     RaceSummary,
+    ReviewSummary,
+    SegmentReviewSummary,
     SegmentState,
 )
 
@@ -163,6 +165,12 @@ class MarathonSimulation:
         self.athletes: list[AthleteState] = []
         self.drones: list[DroneState] = []
         self.alerts: list[AlertState] = []
+        self._segment_peak_athletes: dict[str, int] = {}
+        self._segment_peak_risk: dict[str, float] = {}
+        self._segment_event_counts: dict[str, int] = {}
+        self._event_counts: dict[str, int] = {}
+        self._drone_dispatch_count = 0
+        self._counted_drone_alert_ids: set[str] = set()
         self._reset_state()
 
     def _reset_state(self) -> None:
@@ -208,6 +216,12 @@ class MarathonSimulation:
             )
             for item in self.segment_definitions
         ]
+        self._segment_peak_athletes = {segment.id: 0 for segment in self.segments}
+        self._segment_peak_risk = {segment.id: 0.0 for segment in self.segments}
+        self._segment_event_counts = {segment.id: 0 for segment in self.segments}
+        self._event_counts = {"crowd": 0, "fall": 0, "vital": 0}
+        self._drone_dispatch_count = 0
+        self._counted_drone_alert_ids.clear()
         self.athletes = []
         participant_config = self.scenario.get("participant_generation", {})
         participant_count = int(participant_config.get("count", 36))
@@ -350,6 +364,16 @@ class MarathonSimulation:
                 segment.focus_label = "综合监测"
                 segment.monitoring_tasks = ["人群密度", "跌倒识别", "手环异常"]
 
+            self._segment_peak_athletes[segment.id] = max(
+                self._segment_peak_athletes.get(segment.id, 0),
+                segment.athlete_count,
+            )
+            self._segment_peak_risk[segment.id] = max(
+                self._segment_peak_risk.get(segment.id, 0.0),
+                segment.crowd_risk,
+                segment.health_risk,
+            )
+
     def _update_athletes(self) -> None:
         for athlete in self.athletes:
             if athlete.status == "fallen" or athlete.status == "finished":
@@ -457,6 +481,45 @@ class MarathonSimulation:
             completed=self._demo_completed,
         )
 
+    def _build_review_summary(self) -> ReviewSummary:
+        event_alerts = [alert for alert in self.alerts if alert.event_type != "system"]
+        response_times = [alert.response_seconds for alert in event_alerts if alert.response_seconds is not None]
+        resolution_times = [alert.resolution_seconds for alert in event_alerts if alert.resolution_seconds is not None]
+        resolved_events = sum(alert.status == "resolved" for alert in event_alerts)
+        total_events = len(event_alerts)
+        highest_risk_segment_id = max(
+            self._segment_peak_risk,
+            key=self._segment_peak_risk.get,
+            default="S1",
+        )
+        busiest_segment_id = max(
+            self._segment_peak_athletes,
+            key=self._segment_peak_athletes.get,
+            default="S1",
+        )
+        segment_review = [
+            SegmentReviewSummary(
+                id=segment.id,
+                name=segment.name,
+                peak_athletes=self._segment_peak_athletes.get(segment.id, 0),
+                peak_risk_percent=round(self._segment_peak_risk.get(segment.id, 0) * 100),
+                event_count=self._segment_event_counts.get(segment.id, 0),
+            )
+            for segment in self.segments
+        ]
+        return ReviewSummary(
+            total_events=total_events,
+            resolved_events=resolved_events,
+            completion_rate_percent=round(resolved_events / total_events * 100) if total_events else 0,
+            average_response_seconds=round(sum(response_times) / len(response_times)) if response_times else None,
+            average_resolution_seconds=round(sum(resolution_times) / len(resolution_times)) if resolution_times else None,
+            drone_dispatches=self._drone_dispatch_count,
+            event_counts=dict(self._event_counts),
+            highest_risk_segment_id=highest_risk_segment_id,
+            busiest_segment_id=busiest_segment_id,
+            segments=segment_review,
+        )
+
     def _build_snapshot(self) -> PlatformSnapshot:
         open_alerts = sum(alert.status != "resolved" for alert in self.alerts)
         high_risk = sum(max(segment.crowd_risk, segment.health_risk) >= 0.72 for segment in self.segments)
@@ -474,6 +537,7 @@ class MarathonSimulation:
                 high_risk_segments=high_risk,
             ),
             demo=self._build_demo_state(),
+            review=self._build_review_summary(),
         )
 
     async def snapshot(self) -> PlatformSnapshot:
@@ -541,6 +605,11 @@ class MarathonSimulation:
             athlete_id=athlete.id if athlete and event_type != "crowd" else None,
         )
         self.alerts.append(alert)
+        self._event_counts[event_type] = self._event_counts.get(event_type, 0) + 1
+        self._segment_event_counts[segment.id] = self._segment_event_counts.get(segment.id, 0) + 1
+        if event_type == "fall" and alert.id not in self._counted_drone_alert_ids:
+            self._drone_dispatch_count += 1
+            self._counted_drone_alert_ids.add(alert.id)
         self._recalculate_segments()
         self._update_drones()
         return alert
@@ -620,6 +689,9 @@ class MarathonSimulation:
             alert.handling_action = action if action in action_config else "acknowledge"
             alert.assigned_unit = assigned_unit
             alert.handling_note = note
+            if action == "uav_review" and alert.id not in self._counted_drone_alert_ids:
+                self._drone_dispatch_count += 1
+                self._counted_drone_alert_ids.add(alert.id)
             if alert.acknowledged_at is None:
                 alert.acknowledged_at = now
                 alert.response_seconds = max(0, int((now - alert.created_at).total_seconds()))

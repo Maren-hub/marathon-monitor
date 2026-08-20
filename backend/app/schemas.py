@@ -103,6 +103,27 @@ class DemoTimelineState(BaseModel):
     completed: bool = False
 
 
+class SegmentReviewSummary(BaseModel):
+    id: str
+    name: str
+    peak_athletes: int
+    peak_risk_percent: int = Field(ge=0, le=100)
+    event_count: int
+
+
+class ReviewSummary(BaseModel):
+    total_events: int
+    resolved_events: int
+    completion_rate_percent: int = Field(ge=0, le=100)
+    average_response_seconds: int | None = None
+    average_resolution_seconds: int | None = None
+    drone_dispatches: int
+    event_counts: dict[str, int]
+    highest_risk_segment_id: str
+    busiest_segment_id: str
+    segments: list[SegmentReviewSummary]
+
+
 class PlatformSnapshot(BaseModel):
     generated_at: datetime
     race: RaceSummary
@@ -112,6 +133,7 @@ class PlatformSnapshot(BaseModel):
     alerts: list[AlertState]
     stats: PlatformStats
     demo: DemoTimelineState
+    review: ReviewSummary
 
 
 class SimulationEventRequest(BaseModel):

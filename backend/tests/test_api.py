@@ -24,6 +24,7 @@ def test_snapshot_contains_platform_modules() -> None:
         assert payload["drones"][0]["status"] in {"patrol", "dispatch"}
         assert payload["drones"][0]["camera_mode"]
         assert payload["drones"]
+        assert len(payload["review"]["segments"]) == 5
 
 
 def test_can_inject_fall_event() -> None:
@@ -56,6 +57,10 @@ def test_alert_can_complete_response_workflow() -> None:
         assert resolved.status_code == 200
         assert resolved.json()["status"] == "resolved"
         assert resolved.json()["resolution_seconds"] is not None
+        review = client.get("/api/snapshot").json()["review"]
+        assert review["total_events"] >= 1
+        assert review["resolved_events"] >= 1
+        assert review["drone_dispatches"] >= 1
 
 
 def test_reset_pauses_race_with_all_athletes_ready() -> None:

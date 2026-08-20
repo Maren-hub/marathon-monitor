@@ -4,6 +4,7 @@ import AlertPanel from './components/AlertPanel.vue'
 import CesiumMap from './components/CesiumMap.vue'
 import ControlBar from './components/ControlBar.vue'
 import HeaderBar from './components/HeaderBar.vue'
+import ReviewPanel from './components/ReviewPanel.vue'
 import SegmentPanel from './components/SegmentPanel.vue'
 import StrategyPanel from './components/StrategyPanel.vue'
 import { usePlatform } from './composables/usePlatform'
@@ -15,6 +16,7 @@ const selectedAthleteId = ref('')
 const lastDemoSegmentId = ref('')
 const busy = ref(false)
 const toast = ref('')
+const reviewOpen = ref(false)
 
 const selectedSegment = computed(() => snapshot.value?.segments.find((item) => item.id === selectedSegmentId.value) ?? null)
 const isRunning = computed(() => snapshot.value?.race.status === 'running')
@@ -94,7 +96,7 @@ async function handleAlertAction({ alertId, action }) {
 
 <template>
   <div class="app-shell">
-    <HeaderBar :snapshot="snapshot" :connection-status="connectionStatus" />
+    <HeaderBar :snapshot="snapshot" :connection-status="connectionStatus" @open-review="reviewOpen = true" />
 
     <div v-if="errorMessage" class="error-banner">{{ errorMessage }}</div>
 
@@ -138,5 +140,7 @@ async function handleAlertAction({ alertId, action }) {
     <Transition name="toast">
       <div v-if="toast" class="toast-message">{{ toast }}</div>
     </Transition>
+
+    <ReviewPanel v-if="reviewOpen && snapshot?.review" :snapshot="snapshot" @close="reviewOpen = false" />
   </div>
 </template>
