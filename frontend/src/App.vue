@@ -5,6 +5,7 @@ import CesiumMap from './components/CesiumMap.vue'
 import ControlBar from './components/ControlBar.vue'
 import HeaderBar from './components/HeaderBar.vue'
 import SegmentPanel from './components/SegmentPanel.vue'
+import StrategyPanel from './components/StrategyPanel.vue'
 import { usePlatform } from './composables/usePlatform'
 import { platformApi } from './services/api'
 
@@ -100,11 +101,14 @@ async function acknowledge(alertId) {
         :selected-segment-id="selectedSegmentId"
         @select-segment="selectedSegmentId = $event"
       />
-      <AlertPanel
-        :alerts="snapshot.alerts"
-        @locate="selectedSegmentId = $event"
-        @acknowledge="acknowledge"
-      />
+      <aside class="right-stack">
+        <StrategyPanel :segment="selectedSegment" />
+        <AlertPanel
+          :alerts="snapshot.alerts"
+          @locate="selectedSegmentId = $event"
+          @acknowledge="acknowledge"
+        />
+      </aside>
       <ControlBar
         :selected-segment="selectedSegment"
         :running="isRunning"

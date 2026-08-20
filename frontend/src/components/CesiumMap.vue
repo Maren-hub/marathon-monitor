@@ -1,6 +1,7 @@
 <script setup>
-import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import {
+  CallbackProperty,
   Cartesian2,
   Cartesian3,
   Color,
@@ -30,13 +31,26 @@ const segmentEntities = new Map()
 const athleteEntities = new Map()
 const droneEntities = new Map()
 
-function segmentColor(segment) {
+function segmentRisk(segment) {
   const dominantRisk = Math.max(segment.crowd_risk, segment.health_risk)
-  if (dominantRisk >= 0.78) return Color.fromCssColorString('#ff4d6d')
-  if (segment.focus === 'crowd') return Color.fromCssColorString('#ffb547')
-  if (segment.focus === 'health') return Color.fromCssColorString('#ff6b8a')
-  return Color.fromCssColorString('#34d6c7')
+  if (dominantRisk >= 0.75) return { level: 'critical', label: '高风险', color: Color.fromCssColorString('#ff365f') }
+  if (dominantRisk >= 0.55) return { level: 'high', label: '较高风险', color: Color.fromCssColorString('#ff914d') }
+  if (dominantRisk >= 0.35) return { level: 'attention', label: '需要关注', color: Color.fromCssColorString('#f4d35e') }
+  return { level: 'normal', label: '运行正常', color: Color.fromCssColorString('#34d6c7') }
 }
+
+const selectedRisk = computed(() => {
+  const segment = props.snapshot?.segments.find((item) => item.id === props.selectedSegmentId)
+  if (!segment) return null
+  const hasUrgentAlert = props.snapshot?.alerts.some(
+    (alert) => alert.segment_id === segment.id && alert.status === 'new' && alert.level === 'critical'
+  )
+  if (hasUrgentAlert) {
+    return { level: 'critical', label: '紧急报警', color: Color.fromCssColorString('#ff365f'), percent: 100 }
+  }
+  const risk = segmentRisk(segment)
+  return { ...risk, percent: Math.round(Math.max(segment.crowd_risk, segment.health_risk) * 100) }
+})
 
 function athleteColor(status) {
   if (status === 'fallen') return Color.fromCssColorString('#ff365f')
@@ -45,12 +59,28 @@ function athleteColor(status) {
   return Color.fromCssColorString('#f3f7fb')
 }
 
-function renderSegments(segments) {
+function renderSegments(segments, alerts = []) {
+  const urgentSegmentIds = new Set(
+    alerts
+      .filter((alert) => alert.status === 'new' && alert.level === 'critical')
+      .map((alert) => alert.segment_id)
+  )
   for (const segment of segments) {
     const flatCoordinates = segment.coordinates.flat()
     const midpoint = segment.coordinates[Math.floor(segment.coordinates.length / 2)]
-    const color = segmentColor(segment)
+    const risk = segmentRisk(segment)
+    const urgent = urgentSegmentIds.has(segment.id)
     const selected = segment.id === props.selectedSegmentId
+    const displayColor = urgent ? Color.fromCssColorString('#ff365f') : risk.color
+    const color = urgent
+      ? new CallbackProperty(() => {
+        const alpha = 0.55 + ((Math.sin(Date.now() / 170) + 1) / 2) * 0.45
+        return displayColor.withAlpha(alpha)
+      }, false)
+      : displayColor
+    const lineWidth = urgent
+      ? new CallbackProperty(() => (selected ? 13 : 8) + ((Math.sin(Date.now() / 170) + 1) / 2) * 5, false)
+      : selected ? 12 : 7
     let entity = segmentEntities.get(segment.id)
     if (!entity) {
       entity = viewer.entities.add({
@@ -60,8 +90,8 @@ function renderSegments(segments) {
         polyline: {
           positions: Cartesian3.fromDegreesArray(flatCoordinates),
           clampToGround: true,
-          width: selected ? 12 : 7,
-          material: new PolylineGlowMaterialProperty({ glowPower: 0.18, color })
+          width: lineWidth,
+          material: new PolylineGlowMaterialProperty({ glowPower: urgent ? 0.42 : 0.18, color })
         },
         label: {
           text: `${segment.id}  ${segment.name}`,
@@ -78,8 +108,8 @@ function renderSegments(segments) {
       segmentEntities.set(segment.id, entity)
     } else {
       entity.polyline.positions = new ConstantProperty(Cartesian3.fromDegreesArray(flatCoordinates))
-      entity.polyline.width = new ConstantProperty(selected ? 12 : 7)
-      entity.polyline.material = new PolylineGlowMaterialProperty({ glowPower: selected ? 0.28 : 0.16, color })
+      entity.polyline.width = typeof lineWidth === 'number' ? new ConstantProperty(lineWidth) : lineWidth
+      entity.polyline.material = new PolylineGlowMaterialProperty({ glowPower: urgent ? 0.42 : selected ? 0.28 : 0.16, color })
       entity.label.text = new ConstantProperty(`${segment.id}  ${segment.name}`)
     }
   }
@@ -169,7 +199,7 @@ function renderDrones(drones) {
 
 function renderSnapshot() {
   if (!viewer || !props.snapshot) return
-  renderSegments(props.snapshot.segments)
+  renderSegments(props.snapshot.segments, props.snapshot.alerts)
   renderAthletes(props.snapshot.athletes)
   renderDrones(props.snapshot.drones)
 }
@@ -240,11 +270,16 @@ onBeforeUnmount(() => {
       <span>LIVE DIGITAL COURSE</span>
       <strong>三维赛道态势</strong>
     </div>
+    <div v-if="selectedRisk" class="map-overlay map-risk-card" :class="selectedRisk.level">
+      <span>当前赛段风险</span>
+      <strong>{{ selectedRisk.label }}</strong>
+      <b>{{ selectedRisk.percent }}%</b>
+    </div>
     <div class="map-overlay legend">
-      <span><i class="crowd"></i>聚集优先</span>
-      <span><i class="health"></i>健康优先</span>
-      <span><i class="balanced"></i>综合监测</span>
-      <span><i class="critical"></i>高风险</span>
+      <span><i class="normal"></i>正常</span>
+      <span><i class="attention"></i>关注</span>
+      <span><i class="high"></i>较高风险</span>
+      <span><i class="critical"></i>高风险 / 闪烁报警</span>
     </div>
   </div>
 </template>
