@@ -6,6 +6,8 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
+from .processing_pipeline import automatic_pipeline
+from .pipeline_schemas import PipelineIngestRequest, PipelineIngestResponse, SegmentFusionResult
 from .schemas import AlertActionRequest, PlatformSnapshot, SimulationControlRequest, SimulationEventRequest
 from .simulation import MarathonSimulation
 
@@ -64,6 +66,31 @@ app.add_middleware(
 @app.get("/api/health")
 async def health() -> dict[str, str]:
     return {"status": "ok", "service": "marathon-monitor-api"}
+
+
+@app.get("/api/pipeline/rules")
+async def get_pipeline_rules() -> dict:
+    """查看当前自动处理规则、权重、版本和原型声明。"""
+    return automatic_pipeline.rules()
+
+
+@app.post("/api/pipeline/ingest", response_model=PipelineIngestResponse)
+async def ingest_pipeline_data(request: PipelineIngestRequest) -> PipelineIngestResponse:
+    """统一接收手环、无人机、环境和 GIS 数据并自动处理。"""
+    return await automatic_pipeline.ingest(request)
+
+
+@app.get("/api/pipeline/segments", response_model=list[SegmentFusionResult])
+async def get_pipeline_segments() -> list[SegmentFusionResult]:
+    """读取已经完成融合、风险计算和任务推荐的赛段结果。"""
+    return await automatic_pipeline.results()
+
+
+@app.post("/api/pipeline/reset")
+async def reset_pipeline() -> dict[str, str]:
+    """清空V0.1内存数据，便于重新进行一轮原型实验。"""
+    await automatic_pipeline.reset()
+    return {"status": "ok", "message": "自动处理管道数据已清空"}
 
 
 @app.get("/api/snapshot", response_model=PlatformSnapshot)

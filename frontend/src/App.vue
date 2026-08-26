@@ -1,9 +1,10 @@
 <script setup>
-import { computed, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import AlertPanel from './components/AlertPanel.vue'
 import CesiumMap from './components/CesiumMap.vue'
 import ControlBar from './components/ControlBar.vue'
 import HeaderBar from './components/HeaderBar.vue'
+import PipelinePanel from './components/PipelinePanel.vue'
 import ReviewPanel from './components/ReviewPanel.vue'
 import SegmentPanel from './components/SegmentPanel.vue'
 import StrategyPanel from './components/StrategyPanel.vue'
@@ -17,8 +18,49 @@ const lastDemoSegmentId = ref('')
 const busy = ref(false)
 const toast = ref('')
 const reviewOpen = ref(false)
+const dataMode = ref('simulation')
+const pipelineResults = ref([])
+const pipelineError = ref('')
+const pipelineUpdatedAt = ref(null)
+let pipelineTimer = null
 
-const selectedSegment = computed(() => snapshot.value?.segments.find((item) => item.id === selectedSegmentId.value) ?? null)
+const latestPipelineResults = computed(() => {
+  const latest = new Map()
+  for (const result of pipelineResults.value) {
+    if (result.record_status === 'usable') latest.set(result.segment_id, result)
+  }
+  return Array.from(latest.values())
+})
+
+const latestPipelineBySegment = computed(() => new Map(latestPipelineResults.value.map((item) => [item.segment_id, item])))
+const pipelineAvailable = computed(() => latestPipelineResults.value.length > 0)
+
+const displaySnapshot = computed(() => {
+  if (!snapshot.value || dataMode.value !== 'pipeline') return snapshot.value
+  const pipelineBySegment = latestPipelineBySegment.value
+  return {
+    ...snapshot.value,
+    segments: snapshot.value.segments.map((segment) => {
+      const result = pipelineBySegment.get(segment.id)
+      if (!result) return { ...segment, data_source: 'simulation-fallback' }
+      return {
+        ...segment,
+        athlete_count: result.uav_person_count ?? segment.athlete_count,
+        crowd_risk: result.crowd_risk,
+        health_risk: result.health_risk,
+        focus: result.focus,
+        focus_label: result.focus_label,
+        monitoring_tasks: result.monitoring_tasks,
+        recommended_units: result.recommended_units,
+        data_confidence: result.data_confidence,
+        rule_version: result.rule_version,
+        data_source: 'pipeline'
+      }
+    })
+  }
+})
+
+const selectedSegment = computed(() => displaySnapshot.value?.segments.find((item) => item.id === selectedSegmentId.value) ?? null)
 const isRunning = computed(() => snapshot.value?.race.status === 'running')
 
 watch(snapshot, (value) => {
@@ -43,6 +85,37 @@ function showToast(message) {
     if (toast.value === message) toast.value = ''
   }, 2600)
 }
+
+async function refreshPipeline({ silent = false } = {}) {
+  try {
+    pipelineResults.value = await platformApi.pipelineSegments()
+    pipelineUpdatedAt.value = new Date()
+    pipelineError.value = ''
+    if (!silent) showToast(`已读取${latestPipelineResults.value.length}个赛段的接入数据`)
+  } catch (error) {
+    pipelineError.value = `自动数据管道暂时不可用：${error.message}`
+    if (!silent) showToast(pipelineError.value)
+  }
+}
+
+async function changeDataMode(mode) {
+  if (mode === 'pipeline') await refreshPipeline({ silent: true })
+  dataMode.value = mode
+  showToast(mode === 'pipeline' ? '已切换到自动接入数据' : '已切换到模拟推演数据')
+}
+
+function pipelineTimeLabel() {
+  return pipelineUpdatedAt.value?.toLocaleTimeString('zh-CN', { hour12: false }) ?? '尚未刷新'
+}
+
+onMounted(async () => {
+  await refreshPipeline({ silent: true })
+  pipelineTimer = window.setInterval(() => {
+    if (dataMode.value === 'pipeline') refreshPipeline({ silent: true })
+  }, 3000)
+})
+
+onBeforeUnmount(() => window.clearInterval(pipelineTimer))
 
 async function injectEvent(type) {
   if (!selectedSegmentId.value) return
@@ -96,18 +169,25 @@ async function handleAlertAction({ alertId, action }) {
 
 <template>
   <div class="app-shell">
-    <HeaderBar :snapshot="snapshot" :connection-status="connectionStatus" @open-review="reviewOpen = true" />
+    <HeaderBar
+      :snapshot="displaySnapshot"
+      :connection-status="connectionStatus"
+      :data-mode="dataMode"
+      :pipeline-available="pipelineAvailable"
+      @open-review="reviewOpen = true"
+      @change-data-mode="changeDataMode"
+    />
 
-    <div v-if="errorMessage" class="error-banner">{{ errorMessage }}</div>
+    <div v-if="errorMessage || pipelineError" class="error-banner">{{ pipelineError || errorMessage }}</div>
 
-    <main v-if="snapshot" class="dashboard-grid">
+    <main v-if="displaySnapshot" class="dashboard-grid">
       <SegmentPanel
-        :segments="snapshot.segments"
+        :segments="displaySnapshot.segments"
         :selected-id="selectedSegmentId"
         @select="selectedSegmentId = $event"
       />
       <CesiumMap
-        :snapshot="snapshot"
+        :snapshot="displaySnapshot"
         :selected-segment-id="selectedSegmentId"
         :selected-athlete-id="selectedAthleteId"
         @select-segment="selectedSegmentId = $event"
@@ -115,13 +195,34 @@ async function handleAlertAction({ alertId, action }) {
       />
       <aside class="right-stack">
         <StrategyPanel :segment="selectedSegment" />
+        <PipelinePanel
+          v-if="dataMode === 'pipeline'"
+          :results="latestPipelineResults"
+          :selected-segment-id="selectedSegmentId"
+          @select="selectedSegmentId = $event"
+        />
         <AlertPanel
+          v-else
           :alerts="snapshot.alerts"
           @locate="selectedSegmentId = $event"
           @action="handleAlertAction"
         />
       </aside>
+      <div v-if="dataMode === 'pipeline'" class="control-bar pipeline-data-bar">
+        <div class="selected-context">
+          <span>当前数据来源</span>
+          <strong>多源数据自动处理管道</strong>
+          <small>{{ latestPipelineResults.length }}个赛段已接入 · 每3秒自动刷新</small>
+        </div>
+        <div class="pipeline-bar-status">
+          <span>最近读取</span>
+          <strong>{{ pipelineTimeLabel() }}</strong>
+          <small>规则版本 prototype-v0.1</small>
+        </div>
+        <button @click="refreshPipeline()">立即刷新数据</button>
+      </div>
       <ControlBar
+        v-else
         :selected-segment="selectedSegment"
         :running="isRunning"
         :busy="busy"
@@ -141,6 +242,6 @@ async function handleAlertAction({ alertId, action }) {
       <div v-if="toast" class="toast-message">{{ toast }}</div>
     </Transition>
 
-    <ReviewPanel v-if="reviewOpen && snapshot?.review" :snapshot="snapshot" @close="reviewOpen = false" />
+    <ReviewPanel v-if="reviewOpen && displaySnapshot?.review" :snapshot="displaySnapshot" @close="reviewOpen = false" />
   </div>
 </template>

@@ -14,6 +14,7 @@ async function request(path, options = {}) {
 
 export const platformApi = {
   snapshot: () => request('/api/snapshot'),
+  pipelineSegments: () => request('/api/pipeline/segments'),
   injectEvent: (eventType, segmentId) =>
     request('/api/simulation/events', {
       method: 'POST',

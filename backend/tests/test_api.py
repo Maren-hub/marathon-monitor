@@ -1,6 +1,12 @@
+import json
+from pathlib import Path
+
 from fastapi.testclient import TestClient
 
 from backend.app.main import app
+
+
+SAMPLE_PIPELINE_FILE = Path(__file__).parents[2] / "data" / "pipeline_sample.json"
 
 
 def test_health_endpoint() -> None:
@@ -81,3 +87,44 @@ def test_auto_demo_starts_from_timeline() -> None:
         assert payload["demo"]["current_title"] == "赛事开始"
         assert payload["demo"]["next_event_title"] == "起跑后局部拥挤"
         assert payload["demo"]["next_event_in_seconds"] == 40
+
+
+def test_pipeline_automatically_fuses_scores_and_assigns_tasks() -> None:
+    payload = json.loads(SAMPLE_PIPELINE_FILE.read_text(encoding="utf-8"))
+    with TestClient(app) as client:
+        client.post("/api/pipeline/reset")
+        response = client.post("/api/pipeline/ingest", json=payload)
+        assert response.status_code == 200
+        results = {item["segment_id"]: item for item in response.json()["results"]}
+
+        assert results["S1"]["record_status"] == "usable"
+        assert results["S1"]["focus"] == "crowd"
+        assert results["S1"]["crowd_risk"] > results["S1"]["health_risk"]
+        assert "安保疏导组" in results["S1"]["recommended_units"]
+
+        assert results["S4"]["record_status"] == "usable"
+        assert results["S4"]["focus"] == "health"
+        assert results["S4"]["health_risk"] > results["S4"]["crowd_risk"]
+        assert "医疗救援组" in results["S4"]["recommended_units"]
+
+
+def test_pipeline_rejects_impossible_sensor_value() -> None:
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/pipeline/ingest",
+            json={
+                "wearable": [
+                    {
+                        "timestamp": "2026-08-25T09:32:00",
+                        "source_id": "WB-R001",
+                        "athlete_id": "R001",
+                        "segment_id": "S1",
+                        "distance_km": 3.5,
+                        "speed_m_s": 2.8,
+                        "heart_rate_bpm": 150,
+                        "spo2_pct": 900,
+                    }
+                ]
+            },
+        )
+        assert response.status_code == 422

@@ -26,6 +26,7 @@
 - 模拟推演的暂停、继续和重置，重置后停在起点等待开始；
 - 从 `data/demo_scenario.json` 读取赛事名称、人数、天气、速度和赛段风险；
 - FastAPI自动接口文档和基础测试。
+- 独立的多源数据自动处理管道V0.1：统一接收手环、无人机、GIS与环境数据，自动完成时间对齐、赛段融合、原型风险计算和任务推荐。
 
 ## 目录结构
 
@@ -35,7 +36,9 @@ marathon monitor/
 │  ├─ app/
 │  │  ├─ main.py          # FastAPI入口与接口
 │  │  ├─ schemas.py       # 前后端数据结构
-│  │  └─ simulation.py    # 模拟数据与风险任务逻辑
+│  │  ├─ simulation.py    # 模拟数据与演示风险任务逻辑
+│  │  ├─ pipeline_schemas.py     # 真实/模拟数据统一输入输出
+│  │  └─ processing_pipeline.py  # 自动对齐、融合、风险与任务管道
 │  ├─ tests/              # 后端接口测试
 │  └─ requirements*.txt
 ├─ frontend/
@@ -97,6 +100,18 @@ powershell -ExecutionPolicy Bypass -File .\scripts\start-frontend.ps1
 - 平台界面：<http://127.0.0.1:5173>
 - FastAPI接口文档：<http://127.0.0.1:8000/docs>
 - 后端健康检查：<http://127.0.0.1:8000/api/health>
+
+## 自动处理一批多源数据
+
+后端启动后，在项目根目录运行：
+
+```powershell
+.\.venv\Scripts\python.exe .\scripts\send-pipeline-data.py
+```
+
+系统会读取 `data/pipeline_sample.json`，一次接收整批手环、无人机、GIS和环境数据，并自动输出S1、S4的风险与任务建议。规则、接口和真实数据接入方式见 [自动数据处理管道V0.1说明](docs/自动数据处理管道_V0.1.md)。
+
+发送完成后刷新平台，点击顶部“接入数据”，即可在赛段面板、三维赛道着色和右侧策略区查看自动计算结果。点击“模拟推演”可以随时返回原来的演示模式。
 
 ## 演示方法
 

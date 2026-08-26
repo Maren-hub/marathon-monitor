@@ -16,6 +16,20 @@ const baseWeights = {
 const strategy = computed(() => {
   if (!props.segment) return null
 
+  if (props.segment.data_source === 'pipeline') {
+    const total = props.segment.crowd_risk + props.segment.health_risk
+    const crowdWeight = total > 0 ? Math.round(props.segment.crowd_risk / total * 100) : 50
+    const healthWeight = 100 - crowdWeight
+    return {
+      crowdWeight,
+      healthWeight,
+      dominant: props.segment.focus_label,
+      reason: `当前结果由多源数据自动管道生成，规则版本${props.segment.rule_version}，数据置信度${Math.round((props.segment.data_confidence ?? 0) * 100)}%。风险分值属于原型信号，不代表事故概率或医学诊断。`,
+      tasks: props.segment.monitoring_tasks ?? [],
+      units: props.segment.recommended_units ?? []
+    }
+  }
+
   const [baseCrowd, baseHealth] = baseWeights[props.segment.id] ?? [50, 50]
   const riskDifference = (props.segment.crowd_risk - props.segment.health_risk) * 18
   const crowdWeight = Math.round(Math.min(85, Math.max(15, baseCrowd + riskDifference)))
@@ -33,7 +47,8 @@ const strategy = computed(() => {
     healthWeight,
     dominant,
     reason,
-    tasks: props.segment.monitoring_tasks ?? []
+    tasks: props.segment.monitoring_tasks ?? [],
+    units: []
   }
 })
 </script>
@@ -73,6 +88,10 @@ const strategy = computed(() => {
       <div class="strategy-tasks">
         <span>当前推荐任务</span>
         <div><b v-for="task in strategy.tasks" :key="task">{{ task }}</b></div>
+      </div>
+      <div v-if="strategy.units.length" class="strategy-tasks strategy-units">
+        <span>建议响应单位</span>
+        <div><b v-for="unit in strategy.units" :key="unit">{{ unit }}</b></div>
       </div>
     </template>
   </section>

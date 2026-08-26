@@ -1,0 +1,158 @@
+{
+  "wearable": [
+    {
+      "timestamp": "2026-08-25T09:32:05",
+      "source_id": "WB-R001",
+      "athlete_id": "R001",
+      "segment_id": "S1",
+      "distance_km": 3.50,
+      "speed_m_s": 1.9,
+      "heart_rate_bpm": 154,
+      "spo2_pct": 98,
+      "athlete_status": "normal",
+      "data_quality": 0.98,
+      "data_status": "模拟"
+    },
+    {
+      "timestamp": "2026-08-25T09:32:12",
+      "source_id": "WB-R002",
+      "athlete_id": "R002",
+      "segment_id": "S1",
+      "distance_km": 3.77,
+      "speed_m_s": 1.8,
+      "heart_rate_bpm": 158,
+      "spo2_pct": 97,
+      "athlete_status": "normal",
+      "data_quality": 0.97,
+      "data_status": "模拟"
+    },
+    {
+      "timestamp": "2026-08-25T09:32:18",
+      "source_id": "WB-R003",
+      "athlete_id": "R003",
+      "segment_id": "S1",
+      "distance_km": 4.39,
+      "speed_m_s": 1.7,
+      "heart_rate_bpm": 156,
+      "spo2_pct": 97,
+      "athlete_status": "normal",
+      "data_quality": 0.96,
+      "data_status": "模拟"
+    },
+    {
+      "timestamp": "2026-08-25T09:32:08",
+      "source_id": "WB-R004",
+      "athlete_id": "R004",
+      "segment_id": "S4",
+      "distance_km": 31.50,
+      "speed_m_s": 2.4,
+      "heart_rate_bpm": 163,
+      "spo2_pct": 96,
+      "athlete_status": "normal",
+      "data_quality": 0.97,
+      "data_status": "模拟"
+    },
+    {
+      "timestamp": "2026-08-25T09:32:20",
+      "source_id": "WB-R005",
+      "athlete_id": "R005",
+      "segment_id": "S4",
+      "distance_km": 32.20,
+      "speed_m_s": 0.8,
+      "heart_rate_bpm": 190,
+      "spo2_pct": 90,
+      "athlete_status": "warning",
+      "data_quality": 0.95,
+      "data_status": "模拟"
+    },
+    {
+      "timestamp": "2026-08-25T09:32:25",
+      "source_id": "WB-R006",
+      "athlete_id": "R006",
+      "segment_id": "S4",
+      "distance_km": 33.38,
+      "speed_m_s": 2.3,
+      "heart_rate_bpm": 167,
+      "spo2_pct": 95,
+      "athlete_status": "normal",
+      "data_quality": 0.96,
+      "data_status": "模拟"
+    }
+  ],
+  "uav": [
+    {
+      "timestamp": "2026-08-25T09:32:15",
+      "source_id": "UAV-01",
+      "segment_id": "S1",
+      "person_count": 85,
+      "observed_area_m2": 200,
+      "avg_speed_m_s": 1.8,
+      "suspected_fall_count": 0,
+      "abnormal_motion_count": 0,
+      "data_quality": 0.95,
+      "data_status": "模拟"
+    },
+    {
+      "timestamp": "2026-08-25T09:32:22",
+      "source_id": "UAV-01",
+      "segment_id": "S4",
+      "person_count": 20,
+      "observed_area_m2": 150,
+      "avg_speed_m_s": 1.9,
+      "suspected_fall_count": 0,
+      "abnormal_motion_count": 1,
+      "data_quality": 0.91,
+      "data_status": "模拟"
+    }
+  ],
+  "environment": [
+    {
+      "timestamp": "2026-08-25T09:32:00",
+      "source_id": "ENV-S1",
+      "segment_id": "S1",
+      "temperature_c": 30.8,
+      "humidity_pct": 74,
+      "wind_speed_m_s": 1.4,
+      "rainfall_mm": 0,
+      "data_quality": 0.96,
+      "data_status": "模拟"
+    },
+    {
+      "timestamp": "2026-08-25T09:32:00",
+      "source_id": "ENV-S4",
+      "segment_id": "S4",
+      "temperature_c": 31.2,
+      "humidity_pct": 75,
+      "wind_speed_m_s": 1.1,
+      "rainfall_mm": 0,
+      "data_quality": 0.95,
+      "data_status": "模拟"
+    }
+  ],
+  "gis_segments": [
+    {
+      "segment_id": "S1",
+      "start_km": 0,
+      "end_km": 5,
+      "road_width_m": 10,
+      "mean_slope_pct": 1.2,
+      "max_slope_pct": 2.5,
+      "curve_level": "低",
+      "emergency_access": "方便",
+      "nearest_medical_distance_km": 0.5,
+      "data_status": "模拟"
+    },
+    {
+      "segment_id": "S4",
+      "start_km": 28,
+      "end_km": 37,
+      "road_width_m": 6,
+      "mean_slope_pct": 3.8,
+      "max_slope_pct": 6.5,
+      "curve_level": "高",
+      "emergency_access": "一般",
+      "nearest_medical_distance_km": 1.2,
+      "data_status": "模拟"
+    }
+  ]
+}

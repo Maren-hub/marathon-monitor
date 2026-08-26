@@ -32,7 +32,11 @@ const riskPercent = (value) => `${Math.round(value * 100)}%`
           <span class="segment-index">{{ segment.id }}</span>
           <div>
             <strong>{{ segment.name }}</strong>
-            <small>{{ segment.start_km }}–{{ segment.end_km }} km · {{ segment.athlete_count }} 人</small>
+            <small>
+              {{ segment.start_km }}–{{ segment.end_km }} km · {{ segment.athlete_count }} 人
+              <em v-if="segment.data_source === 'pipeline'" class="pipeline-source-tag">自动接入</em>
+              <em v-else-if="segment.data_source === 'simulation-fallback'" class="fallback-source-tag">模拟补位</em>
+            </small>
           </div>
           <span class="focus-tag">{{ segment.focus_label }}</span>
         </div>
@@ -55,4 +59,3 @@ const riskPercent = (value) => `${Math.round(value * 100)}%`
     </div>
   </section>
 </template>
-

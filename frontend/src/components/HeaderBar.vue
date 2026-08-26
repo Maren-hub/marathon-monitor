@@ -3,9 +3,11 @@ import { computed } from 'vue'
 
 const props = defineProps({
   snapshot: { type: Object, default: null },
-  connectionStatus: { type: String, default: 'connecting' }
+  connectionStatus: { type: String, default: 'connecting' },
+  dataMode: { type: String, default: 'simulation' },
+  pipelineAvailable: { type: Boolean, default: false }
 })
-defineEmits(['open-review'])
+defineEmits(['open-review', 'change-data-mode'])
 
 const statusLabel = computed(() => ({ online: '实时连接', offline: '连接中断', connecting: '正在连接' })[props.connectionStatus])
 
@@ -34,6 +36,12 @@ function formatElapsed(totalSeconds = 0) {
       <div class="meta-item"><span>天气</span><strong>{{ snapshot.race.temperature_c }}℃ / {{ snapshot.race.humidity_percent }}%</strong></div>
       <div class="meta-item"><span>未完赛运动员</span><strong>{{ snapshot.stats.online_athletes }}</strong></div>
       <div class="meta-item"><span>活动无人机</span><strong>{{ snapshot.stats.active_drones }}</strong></div>
+      <div class="data-mode-switch">
+        <button :class="{ active: dataMode === 'simulation' }" @click="$emit('change-data-mode', 'simulation')">模拟推演</button>
+        <button :class="{ active: dataMode === 'pipeline' }" @click="$emit('change-data-mode', 'pipeline')">
+          <i :class="{ available: pipelineAvailable }"></i>接入数据
+        </button>
+      </div>
       <button class="review-entry" @click="$emit('open-review')">赛事复盘</button>
       <div class="connection-pill" :class="connectionStatus">
         <i></i>{{ statusLabel }}
