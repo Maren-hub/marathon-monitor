@@ -115,6 +115,16 @@ powershell -ExecutionPolicy Bypass -File .\scripts\start-frontend.ps1
 
 ## 演示方法
 
+### 真实倾斜模型演示
+
+当前原型已经接入 `BlockBAYBA` 无人机倾斜摄影测试分块。由于模型约170 MB，模型文件不提交到GitHub；演示电脑需要将转换后的模型放在：
+
+```text
+frontend/public/3dtiles/BlockBAYBA/tileset.json
+```
+
+打开平台后点击地图上方“实景模型”，页面会显示一条约120米的测试路线、5名模拟运动员、1架测试无人机，以及起点、重点监测点和终点。选择赛段后点击“模拟聚集”“模拟跌倒”或“模拟体征异常”，相应监测点会变色并显示报警数量。点击“赛事赛道”可返回原有完整马拉松赛道。
+
 推荐使用自动演示：
 
 1. 点击页面底部“开始自动演示”；

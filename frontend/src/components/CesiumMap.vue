@@ -4,11 +4,14 @@ import {
   CallbackProperty,
   Cartesian2,
   Cartesian3,
+  Cesium3DTileset,
   Color,
   ConstantProperty,
   EllipsoidTerrainProvider,
+  HeadingPitchRange,
   HorizontalOrigin,
   LabelStyle,
+  Matrix4,
   NearFarScalar,
   PolylineGlowMaterialProperty,
   Rectangle,
@@ -27,11 +30,53 @@ const props = defineProps({
 const emit = defineEmits(['select-segment', 'select-athlete'])
 const container = ref(null)
 const selectedDroneId = ref('UAV-01')
+const realSceneStatus = ref('loading')
+const realSceneVisible = ref(true)
+const realSceneModeActive = ref(false)
 let viewer = null
 let clickHandler = null
+let realSceneTileset = null
+let realSceneHomeView = null
+const REAL_SCENE_CENTER = new Cartesian3(
+  -2685862.8180647003,
+  4669424.177962229,
+  3403338.0007711477
+)
+let realSceneRouteEntity = null
+let realSceneDroneEntity = null
 const segmentEntities = new Map()
 const athleteEntities = new Map()
 const droneEntities = new Map()
+const realSceneCheckpointEntities = new Map()
+const realSceneRunnerEntities = []
+
+const REAL_SCENE_TRANSFORM = Matrix4.fromArray([
+  -0.8668378543600049, -0.49859014656182593, 0, 0,
+  0.2662988660278672, -0.4629813469798977, 0.8454189412953508, 0,
+  -0.42070677772239806, 0.7314315435842124, 0.5366690826090628, 0,
+  -2685916.035781034, 4669674.500193627, 3403316.9167269776, 1
+])
+
+const REAL_SCENE_ROUTE_LOCAL = [
+  [61, 127, -184.5],
+  [63, 141, -184.5],
+  [68, 156, -184.5],
+  [77, 170, -184.5],
+  [88, 168, -184.5],
+  [95, 157, -184.5],
+  [92, 141, -184.5],
+  [82, 126, -184.5]
+]
+
+const REAL_SCENE_CHECKPOINTS = [
+  { id: 'start', name: '测试起点', code: 'P1', routeIndex: 0, segments: ['S1', 'S2'], defaultSegment: 'S1' },
+  { id: 'monitor', name: '重点监测点', code: 'P2', routeIndex: 3, segments: ['S3'], defaultSegment: 'S3' },
+  { id: 'finish', name: '测试终点', code: 'P3', routeIndex: 7, segments: ['S4', 'S5'], defaultSegment: 'S5' }
+]
+
+function localScenePoint([x, y, z]) {
+  return Matrix4.multiplyByPoint(REAL_SCENE_TRANSFORM, new Cartesian3(x, y, z), new Cartesian3())
+}
 
 function segmentRisk(segment) {
   const dominantRisk = Math.max(segment.crowd_risk, segment.health_risk)
@@ -247,11 +292,141 @@ function renderDrones(drones) {
   }
 }
 
+function addRealSceneDemoEntities() {
+  if (!viewer || realSceneRouteEntity) return
+  const routePositions = REAL_SCENE_ROUTE_LOCAL.map(localScenePoint)
+  realSceneRouteEntity = viewer.entities.add({
+    id: 'real-scene-demo-route',
+    show: false,
+    polyline: {
+      positions: routePositions,
+      width: 7,
+      material: new PolylineGlowMaterialProperty({
+        glowPower: 0.32,
+        color: Color.fromCssColorString('#34d6c7')
+      }),
+      depthFailMaterial: Color.fromCssColorString('#34d6c7').withAlpha(0.75)
+    }
+  })
+
+  for (const checkpoint of REAL_SCENE_CHECKPOINTS) {
+    const position = routePositions[checkpoint.routeIndex]
+    const entity = viewer.entities.add({
+      id: `real-checkpoint-${checkpoint.id}`,
+      show: false,
+      position,
+      properties: { segmentId: checkpoint.defaultSegment, realCheckpointId: checkpoint.id },
+      point: {
+        pixelSize: 13,
+        color: Color.fromCssColorString('#49bfff'),
+        outlineColor: Color.WHITE,
+        outlineWidth: 3,
+        disableDepthTestDistance: Number.POSITIVE_INFINITY
+      },
+      label: {
+        text: `${checkpoint.code}  ${checkpoint.name}`,
+        font: '700 13px sans-serif',
+        fillColor: Color.WHITE,
+        outlineColor: Color.fromCssColorString('#06111a'),
+        outlineWidth: 5,
+        style: LabelStyle.FILL_AND_OUTLINE,
+        verticalOrigin: VerticalOrigin.BOTTOM,
+        pixelOffset: new Cartesian2(0, -15),
+        disableDepthTestDistance: Number.POSITIVE_INFINITY
+      }
+    })
+    realSceneCheckpointEntities.set(checkpoint.id, entity)
+  }
+
+  for (const [runnerIndex, routeIndex] of [1, 2, 4, 5, 6].entries()) {
+    const runner = viewer.entities.add({
+      id: `real-runner-${runnerIndex + 1}`,
+      show: false,
+      position: routePositions[routeIndex],
+      point: {
+        pixelSize: 7,
+        color: Color.WHITE,
+        outlineColor: Color.fromCssColorString('#34d6c7'),
+        outlineWidth: 2,
+        disableDepthTestDistance: Number.POSITIVE_INFINITY
+      }
+    })
+    realSceneRunnerEntities.push(runner)
+  }
+
+  const droneLocal = [...REAL_SCENE_ROUTE_LOCAL[3]]
+  droneLocal[2] = -158
+  realSceneDroneEntity = viewer.entities.add({
+    id: 'real-scene-uav',
+    show: false,
+    position: localScenePoint(droneLocal),
+    point: {
+      pixelSize: 14,
+      color: Color.fromCssColorString('#49bfff'),
+      outlineColor: Color.WHITE,
+      outlineWidth: 3,
+      disableDepthTestDistance: Number.POSITIVE_INFINITY
+    },
+    label: {
+      text: '◆ UAV-TEST · 实景巡检',
+      font: '700 12px sans-serif',
+      fillColor: Color.fromCssColorString('#6ed7ff'),
+      outlineColor: Color.fromCssColorString('#06111a'),
+      outlineWidth: 5,
+      style: LabelStyle.FILL_AND_OUTLINE,
+      verticalOrigin: VerticalOrigin.BOTTOM,
+      pixelOffset: new Cartesian2(0, -15),
+      disableDepthTestDistance: Number.POSITIVE_INFINITY
+    }
+  })
+}
+
+function setRealSceneDemoVisibility(visible) {
+  if (realSceneRouteEntity) realSceneRouteEntity.show = visible
+  if (realSceneDroneEntity) realSceneDroneEntity.show = visible
+  for (const entity of realSceneCheckpointEntities.values()) entity.show = visible
+  for (const entity of realSceneRunnerEntities) entity.show = visible
+}
+
+function renderRealSceneAlerts(alerts = []) {
+  if (!realSceneCheckpointEntities.size) return
+  const activeAlerts = alerts.filter((alert) => alert.status !== 'resolved' && alert.event_type !== 'system')
+  for (const checkpoint of REAL_SCENE_CHECKPOINTS) {
+    const entity = realSceneCheckpointEntities.get(checkpoint.id)
+    if (!entity) continue
+    const checkpointAlerts = activeAlerts.filter((alert) => checkpoint.segments.includes(alert.segment_id))
+    const urgent = checkpointAlerts.some((alert) => alert.level === 'critical' && alert.status === 'new')
+    const warning = checkpointAlerts.length > 0
+    const selected = checkpoint.segments.includes(props.selectedSegmentId)
+    const baseColor = urgent
+      ? Color.fromCssColorString('#ff365f')
+      : warning
+        ? Color.fromCssColorString('#ffb547')
+        : selected
+          ? Color.fromCssColorString('#34d6c7')
+          : Color.fromCssColorString('#49bfff')
+    entity.point.color = urgent
+      ? new CallbackProperty(() => baseColor.withAlpha(0.58 + ((Math.sin(Date.now() / 160) + 1) / 2) * 0.42), false)
+      : new ConstantProperty(baseColor)
+    entity.point.pixelSize = urgent
+      ? new CallbackProperty(() => 15 + ((Math.sin(Date.now() / 160) + 1) / 2) * 6, false)
+      : new ConstantProperty(selected ? 17 : warning ? 15 : 13)
+    entity.point.outlineColor = new ConstantProperty(selected ? Color.WHITE : Color.fromCssColorString('#06111a'))
+    entity.label.fillColor = new ConstantProperty(baseColor)
+    entity.label.text = new ConstantProperty(
+      checkpointAlerts.length
+        ? `${checkpoint.code}  ${checkpoint.name} · ${checkpointAlerts.length}项报警`
+        : `${checkpoint.code}  ${checkpoint.name}`
+    )
+  }
+}
+
 function renderSnapshot() {
   if (!viewer || !props.snapshot) return
   renderSegments(props.snapshot.segments, props.snapshot.alerts)
   renderAthletes(props.snapshot.athletes)
   renderDrones(props.snapshot.drones)
+  renderRealSceneAlerts(props.snapshot.alerts)
 }
 
 function focusSegment(segmentId) {
@@ -270,6 +445,57 @@ function focusSegment(segmentId) {
   })
 }
 
+function focusRaceCourse() {
+  if (!viewer) return
+  realSceneModeActive.value = false
+  setRealSceneDemoVisibility(false)
+  viewer.camera.flyTo({
+    destination: Rectangle.fromDegrees(114.343, 30.513, 114.387, 30.544),
+    duration: 1.1
+  })
+}
+
+async function focusRealScene() {
+  if (!viewer || realSceneStatus.value === 'loading') return
+  if (!realSceneTileset) return
+  realSceneVisible.value = true
+  realSceneModeActive.value = true
+  realSceneTileset.show = true
+  setRealSceneDemoVisibility(true)
+  renderRealSceneAlerts(props.snapshot?.alerts ?? [])
+  viewer.camera.lookAt(
+    REAL_SCENE_CENTER,
+    new HeadingPitchRange(0, -0.58, 140)
+  )
+  realSceneHomeView = true
+  viewer.scene.requestRender()
+  viewer.scene.screenSpaceCameraController.enableInputs = true
+}
+
+function toggleRealScene() {
+  if (!realSceneTileset) return
+  realSceneVisible.value = !realSceneVisible.value
+  realSceneTileset.show = realSceneVisible.value
+  setRealSceneDemoVisibility(realSceneVisible.value && realSceneModeActive.value)
+}
+
+async function loadRealScene() {
+  try {
+    realSceneStatus.value = 'loading'
+    realSceneTileset = await Cesium3DTileset.fromUrl('/3dtiles/BlockBAYBA/tileset.json', {
+      maximumScreenSpaceError: 12,
+      dynamicScreenSpaceError: true
+    })
+    viewer.scene.primitives.add(realSceneTileset)
+    addRealSceneDemoEntities()
+    renderRealSceneAlerts(props.snapshot?.alerts ?? [])
+    realSceneStatus.value = 'ready'
+  } catch (error) {
+    console.error('真实倾斜模型加载失败', error)
+    realSceneStatus.value = 'error'
+  }
+}
+
 watch(() => props.snapshot, renderSnapshot, { deep: true })
 watch(() => props.selectedAthleteId, renderSnapshot)
 watch(selectedDroneId, renderSnapshot)
@@ -277,11 +503,11 @@ watch(
   () => props.selectedSegmentId,
   (value, previous) => {
     renderSnapshot()
-    if (value && value !== previous) focusSegment(value)
+    if (value && value !== previous && !realSceneModeActive.value) focusSegment(value)
   }
 )
 
-onMounted(() => {
+onMounted(async () => {
   viewer = new Viewer(container.value, {
     animation: false,
     baseLayer: false,
@@ -319,6 +545,7 @@ onMounted(() => {
     }
   }, ScreenSpaceEventType.LEFT_CLICK)
   renderSnapshot()
+  await loadRealScene()
 })
 
 onBeforeUnmount(() => {
@@ -334,12 +561,32 @@ onBeforeUnmount(() => {
       <span>LIVE DIGITAL COURSE</span>
       <strong>三维赛道态势</strong>
     </div>
+    <div class="real-scene-controls">
+      <span :class="realSceneStatus">
+        {{ realSceneStatus === 'ready' ? '真实倾斜模型已接入' : realSceneStatus === 'error' ? '模型加载失败' : '正在加载模型' }}
+      </span>
+      <button @click="focusRaceCourse">赛事赛道</button>
+      <button :disabled="realSceneStatus !== 'ready'" @click="focusRealScene">
+        {{ realSceneModeActive ? '重置实景视角' : '实景模型' }}
+      </button>
+      <button :disabled="realSceneStatus !== 'ready'" @click="toggleRealScene">
+        {{ realSceneVisible ? '隐藏模型' : '显示模型' }}
+      </button>
+    </div>
+    <div v-if="realSceneModeActive" class="map-overlay real-scene-demo-badge">
+      <b>实景测试路线</b>
+      <span>约 120 m · 5名模拟运动员 · 1架无人机 · 3个监测点</span>
+    </div>
     <div v-if="selectedRisk" class="map-overlay map-risk-card" :class="selectedRisk.level">
       <span>当前赛段风险</span>
       <strong>{{ selectedRisk.label }}</strong>
       <b>{{ selectedRisk.percent }}%</b>
     </div>
-    <section v-if="selectedDrone" class="drone-monitor-card" :class="selectedDrone.status">
+    <section
+      v-if="selectedDrone"
+      class="drone-monitor-card"
+      :class="[selectedDrone.status, { compact: realSceneModeActive }]"
+    >
       <div class="drone-monitor-heading">
         <div>
           <span>UAV COOPERATIVE MONITORING</span>
