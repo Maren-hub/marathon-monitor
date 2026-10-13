@@ -5,13 +5,14 @@ import {
   Cartesian2,
   Cartesian3,
   Cesium3DTileset,
+  ClassificationType,
   Color,
   ConstantProperty,
   EllipsoidTerrainProvider,
   HeadingPitchRange,
+  HeightReference,
   HorizontalOrigin,
   LabelStyle,
-  Matrix4,
   NearFarScalar,
   PolylineGlowMaterialProperty,
   Rectangle,
@@ -20,9 +21,12 @@ import {
   VerticalOrigin,
   Viewer
 } from 'cesium'
+import { routeLengthKm } from '../data/nanlinCourse'
+import { platformApi } from '../services/api'
 
 const props = defineProps({
   snapshot: { type: Object, default: null },
+  historicalAlerts: { type: Array, default: () => [] },
   selectedSegmentId: { type: String, default: '' },
   selectedAthleteId: { type: String, default: '' }
 })
@@ -30,52 +34,205 @@ const props = defineProps({
 const emit = defineEmits(['select-segment', 'select-athlete'])
 const container = ref(null)
 const selectedDroneId = ref('UAV-01')
-const realSceneStatus = ref('loading')
-const realSceneVisible = ref(true)
-const realSceneModeActive = ref(false)
+const nanlinSceneStatus = ref('idle')
+const nanlinSceneVisible = ref(false)
+const nanlinSceneModeActive = ref(false)
+const nanlinCourseVisible = ref(true)
+const layerPanelOpen = ref(false)
+const layers = ref({ crowd: false, health: false, uav: false, alerts: false })
+const selectedCampusFeature = ref(null)
+const campusRoute = ref({ segments: [], sites: [], route_length_km: 0, simulation_linked: false, status: '未导入路线' })
+const campusImportOpen = ref(false)
+const campusImportBusy = ref(false)
+const campusImportError = ref('')
+const campusImportSuccess = ref('')
+const routeInput = ref(null)
+const sitesInput = ref(null)
+const modelImportOpen = ref(false)
+const availableModels = ref([])
+const selectedModelId = ref('nanlin')
+const modelUploadBusy = ref(false)
+const modelUploadProgress = ref(0)
+const modelImportError = ref('')
+const modelJob = ref(null)
+const modelZipInput = ref(null)
+const selectedModel = computed(() => availableModels.value.find((item) => item.id === selectedModelId.value) ?? null)
+const campusRouteLength = computed(() => (
+  campusRoute.value.route_length_km ?? campusRoute.value.segments.reduce((sum, segment) => sum + routeLengthKm(segment.coordinates), 0)
+).toFixed(2))
+const campusSiteCounts = computed(() => Object.fromEntries(
+  ['medical', 'water', 'marshal'].map((kind) => [kind, campusRoute.value.sites.filter((site) => site.kind === kind).length])
+))
+
+function campusSegmentById(segmentId) {
+  if (!campusRoute.value.simulation_linked) return null
+  return campusRoute.value.segments.find((segment) => segment.id === segmentId) ?? null
+}
+
+function interpolateCampusSegment(segment, progress = 0.5) {
+  const coordinates = segment?.coordinates ?? []
+  if (coordinates.length < 2) return null
+  const heights = Array.isArray(segment.heights_m) && segment.heights_m.length === coordinates.length
+    ? segment.heights_m
+    : null
+  const lengths = []
+  let totalLength = 0
+  for (let index = 1; index < coordinates.length; index += 1) {
+    const length = routeLengthKm([coordinates[index - 1], coordinates[index]])
+    lengths.push(length)
+    totalLength += length
+  }
+  const target = Math.max(0, Math.min(1, progress)) * totalLength
+  let travelled = 0
+  for (let index = 0; index < lengths.length; index += 1) {
+    const next = travelled + lengths[index]
+    if (target <= next || index === lengths.length - 1) {
+      const local = lengths[index] > 0 ? (target - travelled) / lengths[index] : 0
+      const first = coordinates[index]
+      const second = coordinates[index + 1]
+      const height = heights
+        ? heights[index] + (heights[index + 1] - heights[index]) * local
+        : 0
+      return {
+        longitude: first[0] + (second[0] - first[0]) * local,
+        latitude: first[1] + (second[1] - first[1]) * local,
+        height,
+        hasModelHeight: Boolean(heights)
+      }
+    }
+    travelled = next
+  }
+  return null
+}
+
+function campusLocationForAthlete(athlete) {
+  const campusSegment = campusSegmentById(athlete.segment_id)
+  const logicalSegment = props.snapshot?.segments.find((segment) => segment.id === athlete.segment_id)
+  if (!campusSegment || !logicalSegment) return null
+  const length = Math.max(0.001, logicalSegment.end_km - logicalSegment.start_km)
+  const progress = (athlete.distance_km - logicalSegment.start_km) / length
+  return interpolateCampusSegment(campusSegment, progress)
+}
+
+function campusLocationForSegment(segmentId, progress = 0.5) {
+  return interpolateCampusSegment(campusSegmentById(segmentId), progress)
+}
 let viewer = null
 let clickHandler = null
-let realSceneTileset = null
-let realSceneHomeView = null
-const REAL_SCENE_CENTER = new Cartesian3(
-  -2685862.8180647003,
-  4669424.177962229,
-  3403338.0007711477
-)
-let realSceneRouteEntity = null
-let realSceneDroneEntity = null
+let nanlinTileset = null
+let loadedModelId = null
+let jobPollTimer = null
 const segmentEntities = new Map()
 const athleteEntities = new Map()
 const droneEntities = new Map()
-const realSceneCheckpointEntities = new Map()
-const realSceneRunnerEntities = []
+const nanlinCourseEntities = []
+const layerEntities = new Map()
 
-const REAL_SCENE_TRANSFORM = Matrix4.fromArray([
-  -0.8668378543600049, -0.49859014656182593, 0, 0,
-  0.2662988660278672, -0.4629813469798977, 0.8454189412953508, 0,
-  -0.42070677772239806, 0.7314315435842124, 0.5366690826090628, 0,
-  -2685916.035781034, 4669674.500193627, 3403316.9167269776, 1
-])
+function putLayerEntity(id, options) {
+  let entity = layerEntities.get(id)
+  if (!entity) {
+    entity = viewer.entities.add({ id: `layer-${id}`, ...options })
+    layerEntities.set(id, entity)
+  } else {
+    entity.position = new ConstantProperty(options.position)
+    if (options.ellipse) {
+      entity.ellipse.semiMajorAxis = new ConstantProperty(options.ellipse.semiMajorAxis)
+      entity.ellipse.semiMinorAxis = new ConstantProperty(options.ellipse.semiMinorAxis)
+      entity.ellipse.material = options.ellipse.material
+      entity.ellipse.height = new ConstantProperty(options.ellipse.height)
+    }
+    if (options.point) entity.point.color = new ConstantProperty(options.point.color)
+  }
+  entity.show = options.show
+}
 
-const REAL_SCENE_ROUTE_LOCAL = [
-  [61, 127, -184.5],
-  [63, 141, -184.5],
-  [68, 156, -184.5],
-  [77, 170, -184.5],
-  [88, 168, -184.5],
-  [95, 157, -184.5],
-  [92, 141, -184.5],
-  [82, 126, -184.5]
-]
-
-const REAL_SCENE_CHECKPOINTS = [
-  { id: 'start', name: '测试起点', code: 'P1', routeIndex: 0, segments: ['S1', 'S2'], defaultSegment: 'S1' },
-  { id: 'monitor', name: '重点监测点', code: 'P2', routeIndex: 3, segments: ['S3'], defaultSegment: 'S3' },
-  { id: 'finish', name: '测试终点', code: 'P3', routeIndex: 7, segments: ['S4', 'S5'], defaultSegment: 'S5' }
-]
-
-function localScenePoint([x, y, z]) {
-  return Matrix4.multiplyByPoint(REAL_SCENE_TRANSFORM, new Cartesian3(x, y, z), new Cartesian3())
+function renderThematicLayers() {
+  if (!viewer || !props.snapshot) return
+  const active = new Set()
+  const campusLinked = nanlinSceneModeActive.value && campusRoute.value.simulation_linked
+  for (const segment of props.snapshot.segments) {
+    const midpoint = segment.coordinates[Math.floor(segment.coordinates.length / 2)]
+    const campusLocation = campusLinked ? campusLocationForSegment(segment.id) : null
+    const longitude = campusLocation?.longitude ?? midpoint[0]
+    const latitude = campusLocation?.latitude ?? midpoint[1]
+    const height = campusLocation?.hasModelHeight ? campusLocation.height + 3 : 8
+    for (const [kind, risk, hex] of [
+      ['crowd', segment.crowd_risk, '#ffb547'],
+      ['health', segment.health_risk, '#ff638b']
+    ]) {
+      const id = `${kind}-${segment.id}`
+      active.add(id)
+      const strength = Math.max(0, Math.min(1, Number(risk) || 0))
+      putLayerEntity(id, {
+        show: layers.value[kind],
+        position: Cartesian3.fromDegrees(longitude, latitude, height),
+        properties: { segmentId: segment.id },
+        ellipse: {
+          semiMajorAxis: campusLinked ? 35 + strength * 75 : 180 + strength * 380,
+          semiMinorAxis: campusLinked ? 24 + strength * 52 : 130 + strength * 260,
+          material: Color.fromCssColorString(hex).withAlpha(0.07 + strength * 0.25),
+          outline: true,
+          outlineColor: Color.fromCssColorString(hex).withAlpha(0.45),
+          height
+        }
+      })
+    }
+  }
+  for (const drone of props.snapshot.drones) {
+    const id = `uav-${drone.id}`
+    active.add(id)
+    const campusLocation = campusLinked ? campusLocationForSegment(drone.target_segment_id) : null
+    putLayerEntity(id, {
+      show: layers.value.uav,
+      position: Cartesian3.fromDegrees(
+        campusLocation?.longitude ?? drone.longitude,
+        campusLocation?.latitude ?? drone.latitude,
+        campusLocation?.hasModelHeight ? campusLocation.height + 5 : 10
+      ),
+      properties: { droneId: drone.id },
+      ellipse: {
+        semiMajorAxis: campusLinked ? 85 : 150, semiMinorAxis: campusLinked ? 85 : 150,
+        material: Color.fromCssColorString('#4dbfff').withAlpha(0.13),
+        outline: true,
+        outlineColor: Color.fromCssColorString('#4dbfff').withAlpha(0.7),
+        height: campusLocation?.hasModelHeight ? campusLocation.height + 5 : 10
+      }
+    })
+  }
+  for (const [index, alert] of props.historicalAlerts.entries()) {
+    const segment = props.snapshot.segments.find((item) => item.id === alert.segment_id)
+    if (!segment) continue
+    const midpoint = segment.coordinates[Math.floor(segment.coordinates.length / 2)]
+    const campusLocation = campusLinked ? campusLocationForSegment(segment.id, 0.55) : null
+    const id = `alert-${alert.id}`
+    active.add(id)
+    putLayerEntity(id, {
+      show: layers.value.alerts,
+      position: Cartesian3.fromDegrees(
+        (campusLocation?.longitude ?? midpoint[0]) + ((index % 5) - 2) * (campusLinked ? 0.000015 : 0.00011),
+        (campusLocation?.latitude ?? midpoint[1]) + (Math.floor(index / 5) % 5 - 2) * (campusLinked ? 0.000012 : 0.0001),
+        campusLocation?.hasModelHeight ? campusLocation.height + 8 : 35
+      ),
+      properties: { segmentId: segment.id },
+      point: {
+        pixelSize: alert.level === 'critical' ? 11 : 8,
+        color: Color.fromCssColorString(alert.level === 'critical' ? '#ff365f' : '#ffb547'),
+        outlineColor: Color.WHITE, outlineWidth: 2,
+        disableDepthTestDistance: Number.POSITIVE_INFINITY
+      },
+      label: {
+        text: `${alert.event_type === 'fall' ? '跌倒' : alert.event_type === 'vital' ? '体征' : '聚集'} · ${segment.id}`,
+        font: '11px sans-serif', fillColor: Color.WHITE,
+        outlineColor: Color.fromCssColorString('#07131f'), outlineWidth: 3,
+        style: LabelStyle.FILL_AND_OUTLINE, pixelOffset: new Cartesian2(0, -16),
+        scaleByDistance: new NearFarScalar(700, 1, 6000, 0)
+      }
+    })
+  }
+  for (const [id, entity] of layerEntities) {
+    if (!active.has(id)) { viewer.entities.remove(entity); layerEntities.delete(id) }
+  }
+  viewer.scene.requestRender()
 }
 
 function segmentRisk(segment) {
@@ -171,6 +328,7 @@ function renderSegments(segments, alerts = []) {
     if (!entity) {
       entity = viewer.entities.add({
         id: `segment-${segment.id}`,
+        show: !nanlinSceneModeActive.value,
         position: Cartesian3.fromDegrees(midpoint[0], midpoint[1], 35),
         properties: { segmentId: segment.id },
         polyline: {
@@ -193,6 +351,7 @@ function renderSegments(segments, alerts = []) {
       })
       segmentEntities.set(segment.id, entity)
     } else {
+      entity.show = !nanlinSceneModeActive.value
       entity.polyline.positions = new ConstantProperty(Cartesian3.fromDegreesArray(flatCoordinates))
       entity.polyline.width = typeof lineWidth === 'number' ? new ConstantProperty(lineWidth) : lineWidth
       entity.polyline.material = new PolylineGlowMaterialProperty({ glowPower: urgent ? 0.42 : selected ? 0.28 : 0.16, color })
@@ -208,10 +367,16 @@ function renderAthletes(athletes) {
     let entity = athleteEntities.get(athlete.id)
     const abnormal = athlete.status === 'fallen' || athlete.status === 'warning'
     const selected = athlete.id === props.selectedAthleteId
+    const campusLocation = nanlinSceneModeActive.value ? campusLocationForAthlete(athlete) : null
+    const longitude = campusLocation?.longitude ?? athlete.longitude
+    const latitude = campusLocation?.latitude ?? athlete.latitude
+    const height = campusLocation?.hasModelHeight ? campusLocation.height + 3.2 : 12
+    const visible = !nanlinSceneModeActive.value || Boolean(campusLocation)
     if (!entity) {
       entity = viewer.entities.add({
         id: `athlete-${athlete.id}`,
-        position: Cartesian3.fromDegrees(athlete.longitude, athlete.latitude, 12),
+        show: visible,
+        position: Cartesian3.fromDegrees(longitude, latitude, height),
         properties: { athleteId: athlete.id },
         point: {
           pixelSize: selected ? 14 : abnormal ? 11 : 5,
@@ -235,7 +400,8 @@ function renderAthletes(athletes) {
       })
       athleteEntities.set(athlete.id, entity)
     } else {
-      entity.position = new ConstantProperty(Cartesian3.fromDegrees(athlete.longitude, athlete.latitude, 12))
+      entity.show = visible
+      entity.position = new ConstantProperty(Cartesian3.fromDegrees(longitude, latitude, height))
       entity.point.color = new ConstantProperty(athleteColor(athlete.status))
       entity.point.pixelSize = new ConstantProperty(selected ? 14 : abnormal ? 11 : 5)
       entity.point.outlineColor = new ConstantProperty(selected ? Color.fromCssColorString('#49bfff') : Color.fromCssColorString('#07131f'))
@@ -254,13 +420,21 @@ function renderAthletes(athletes) {
 }
 
 function renderDrones(drones) {
-  for (const drone of drones) {
+  for (const [index, drone] of drones.entries()) {
     let entity = droneEntities.get(drone.id)
     const selected = drone.id === selectedDrone.value?.id
+    const campusLocation = nanlinSceneModeActive.value
+      ? campusLocationForSegment(drone.target_segment_id, 0.45 + index * 0.1)
+      : null
+    const longitude = campusLocation?.longitude ?? drone.longitude
+    const latitude = campusLocation?.latitude ?? drone.latitude
+    const height = campusLocation?.hasModelHeight ? campusLocation.height + 48 + index * 8 : drone.altitude_m
+    const visible = !nanlinSceneModeActive.value || Boolean(campusLocation)
     if (!entity) {
       entity = viewer.entities.add({
         id: `drone-${drone.id}`,
-        position: Cartesian3.fromDegrees(drone.longitude, drone.latitude, drone.altitude_m),
+        show: visible,
+        position: Cartesian3.fromDegrees(longitude, latitude, height),
         properties: { droneId: drone.id },
         point: {
           pixelSize: selected ? 16 : 12,
@@ -283,7 +457,8 @@ function renderDrones(drones) {
       })
       droneEntities.set(drone.id, entity)
     } else {
-      entity.position = new ConstantProperty(Cartesian3.fromDegrees(drone.longitude, drone.latitude, drone.altitude_m))
+      entity.show = visible
+      entity.position = new ConstantProperty(Cartesian3.fromDegrees(longitude, latitude, height))
       entity.point.pixelSize = new ConstantProperty(selected ? 16 : 12)
       entity.point.color = new ConstantProperty(drone.status === 'dispatch' ? Color.fromCssColorString('#ff365f') : Color.fromCssColorString('#49bfff'))
       entity.point.outlineWidth = new ConstantProperty(selected ? 4 : 2)
@@ -292,141 +467,272 @@ function renderDrones(drones) {
   }
 }
 
-function addRealSceneDemoEntities() {
-  if (!viewer || realSceneRouteEntity) return
-  const routePositions = REAL_SCENE_ROUTE_LOCAL.map(localScenePoint)
-  realSceneRouteEntity = viewer.entities.add({
-    id: 'real-scene-demo-route',
-    show: false,
-    polyline: {
-      positions: routePositions,
-      width: 7,
-      material: new PolylineGlowMaterialProperty({
-        glowPower: 0.32,
-        color: Color.fromCssColorString('#34d6c7')
-      }),
-      depthFailMaterial: Color.fromCssColorString('#34d6c7').withAlpha(0.75)
-    }
-  })
 
-  for (const checkpoint of REAL_SCENE_CHECKPOINTS) {
-    const position = routePositions[checkpoint.routeIndex]
-    const entity = viewer.entities.add({
-      id: `real-checkpoint-${checkpoint.id}`,
+function clearCampusCourseEntities() {
+  for (const entity of nanlinCourseEntities) viewer?.entities.remove(entity)
+  nanlinCourseEntities.length = 0
+  selectedCampusFeature.value = null
+}
+
+function addCampusCourseEntities() {
+  if (!viewer || nanlinCourseEntities.length) return
+  const routeColors = ['#34d6c7', '#49bfff', '#f4d35e', '#ffad65', '#fb729b']
+  for (const [index, segment] of campusRoute.value.segments.entries()) {
+    const coordinates = segment.coordinates
+    const linkedState = campusRoute.value.simulation_linked
+      ? props.snapshot?.segments.find((item) => item.id === segment.id)
+      : null
+    const color = linkedState ? segmentRisk(linkedState).color : Color.fromCssColorString(routeColors[index % routeColors.length])
+    const hasModelHeights = Array.isArray(segment.heights_m) && segment.heights_m.length === coordinates.length
+    const positions = hasModelHeights
+      ? Cartesian3.fromDegreesArrayHeights(coordinates.flatMap(([longitude, latitude], pointIndex) => [longitude, latitude, segment.heights_m[pointIndex] + 2]))
+      : Cartesian3.fromDegreesArray(coordinates.flat())
+    nanlinCourseEntities.push(viewer.entities.add({
+      id: `nanlin-course-${segment.id}`,
       show: false,
-      position,
-      properties: { segmentId: checkpoint.defaultSegment, realCheckpointId: checkpoint.id },
+      properties: { campusSegmentId: segment.id },
+      polyline: {
+        positions,
+        clampToGround: !hasModelHeights,
+        classificationType: ClassificationType.BOTH,
+        width: 7,
+        material: color
+      }
+    }))
+    const midpointIndex = Math.floor(coordinates.length / 2)
+    const midpoint = coordinates[midpointIndex]
+    nanlinCourseEntities.push(viewer.entities.add({
+      id: `nanlin-course-label-${segment.id}`,
+      show: false,
+      position: Cartesian3.fromDegrees(midpoint[0], midpoint[1], hasModelHeights ? segment.heights_m[midpointIndex] + 3 : 0),
+      properties: { campusSegmentId: segment.id },
+      label: {
+        text: `${segment.id} ${segment.name}`,
+        heightReference: hasModelHeights ? HeightReference.NONE : HeightReference.CLAMP_TO_GROUND,
+        font: '700 13px sans-serif',
+        fillColor: color,
+        outlineColor: Color.fromCssColorString('#06111a'),
+        outlineWidth: 5,
+        style: LabelStyle.FILL_AND_OUTLINE,
+        pixelOffset: new Cartesian2(0, -13),
+        disableDepthTestDistance: Number.POSITIVE_INFINITY,
+        scaleByDistance: new NearFarScalar(300, 1, 2600, 0.5)
+      }
+    }))
+  }
+  const siteColors = {
+    start: '#fff4c0',
+    medical: '#ff6688',
+    water: '#58bfff',
+    marshal: '#bd9cff',
+    other: '#c8d9df'
+  }
+  for (const [index, site] of campusRoute.value.sites.entries()) {
+    const [longitude, latitude] = site.coordinate
+    const color = Color.fromCssColorString(siteColors[site.kind] ?? siteColors.other)
+    const hasModelHeight = Number.isFinite(site.height_m)
+    nanlinCourseEntities.push(viewer.entities.add({
+      id: `nanlin-site-${index}`,
+      show: false,
+      position: Cartesian3.fromDegrees(longitude, latitude, hasModelHeight ? site.height_m + 4 : 0),
+      properties: { campusSiteId: site.id },
       point: {
-        pixelSize: 13,
-        color: Color.fromCssColorString('#49bfff'),
-        outlineColor: Color.WHITE,
+        heightReference: hasModelHeight ? HeightReference.NONE : HeightReference.CLAMP_TO_GROUND,
+        pixelSize: site.kind === 'start' ? 18 : 13,
+        color,
+        outlineColor: Color.fromCssColorString('#06111a'),
         outlineWidth: 3,
         disableDepthTestDistance: Number.POSITIVE_INFINITY
       },
       label: {
-        text: `${checkpoint.code}  ${checkpoint.name}`,
-        font: '700 13px sans-serif',
-        fillColor: Color.WHITE,
+        text: site.name,
+        heightReference: hasModelHeight ? HeightReference.NONE : HeightReference.CLAMP_TO_GROUND,
+        font: '700 12px sans-serif',
+        fillColor: color,
         outlineColor: Color.fromCssColorString('#06111a'),
         outlineWidth: 5,
         style: LabelStyle.FILL_AND_OUTLINE,
         verticalOrigin: VerticalOrigin.BOTTOM,
-        pixelOffset: new Cartesian2(0, -15),
-        disableDepthTestDistance: Number.POSITIVE_INFINITY
+        pixelOffset: new Cartesian2(0, -17),
+        disableDepthTestDistance: Number.POSITIVE_INFINITY,
+        scaleByDistance: new NearFarScalar(300, 1, 2500, 0.45)
       }
-    })
-    realSceneCheckpointEntities.set(checkpoint.id, entity)
+    }))
   }
+}
 
-  for (const [runnerIndex, routeIndex] of [1, 2, 4, 5, 6].entries()) {
-    const runner = viewer.entities.add({
-      id: `real-runner-${runnerIndex + 1}`,
-      show: false,
-      position: routePositions[routeIndex],
-      point: {
-        pixelSize: 7,
-        color: Color.WHITE,
-        outlineColor: Color.fromCssColorString('#34d6c7'),
-        outlineWidth: 2,
-        disableDepthTestDistance: Number.POSITIVE_INFINITY
-      }
-    })
-    realSceneRunnerEntities.push(runner)
-  }
-
-  const droneLocal = [...REAL_SCENE_ROUTE_LOCAL[3]]
-  droneLocal[2] = -158
-  realSceneDroneEntity = viewer.entities.add({
-    id: 'real-scene-uav',
-    show: false,
-    position: localScenePoint(droneLocal),
-    point: {
-      pixelSize: 14,
-      color: Color.fromCssColorString('#49bfff'),
-      outlineColor: Color.WHITE,
-      outlineWidth: 3,
-      disableDepthTestDistance: Number.POSITIVE_INFINITY
-    },
-    label: {
-      text: '◆ UAV-TEST · 实景巡检',
-      font: '700 12px sans-serif',
-      fillColor: Color.fromCssColorString('#6ed7ff'),
-      outlineColor: Color.fromCssColorString('#06111a'),
-      outlineWidth: 5,
-      style: LabelStyle.FILL_AND_OUTLINE,
-      verticalOrigin: VerticalOrigin.BOTTOM,
-      pixelOffset: new Cartesian2(0, -15),
-      disableDepthTestDistance: Number.POSITIVE_INFINITY
+function updateCampusCourseStyles() {
+  if (!viewer || !campusRoute.value.simulation_linked) return
+  const urgentIds = new Set(
+    (props.snapshot?.alerts ?? [])
+      .filter((alert) => alert.status === 'new' && alert.level === 'critical')
+      .map((alert) => alert.segment_id)
+  )
+  for (const segment of campusRoute.value.segments) {
+    const state = props.snapshot?.segments.find((item) => item.id === segment.id)
+    if (!state) continue
+    const urgent = urgentIds.has(segment.id)
+    const selected = props.selectedSegmentId === segment.id
+    const color = urgent ? Color.fromCssColorString('#ff365f') : segmentRisk(state).color
+    const routeEntity = viewer.entities.getById(`nanlin-course-${segment.id}`)
+    const labelEntity = viewer.entities.getById(`nanlin-course-label-${segment.id}`)
+    if (routeEntity?.polyline) {
+      routeEntity.polyline.width = new ConstantProperty(selected ? 12 : urgent ? 10 : 7)
+      routeEntity.polyline.material = new PolylineGlowMaterialProperty({
+        glowPower: urgent ? 0.42 : selected ? 0.3 : 0.16,
+        color
+      })
     }
-  })
-}
-
-function setRealSceneDemoVisibility(visible) {
-  if (realSceneRouteEntity) realSceneRouteEntity.show = visible
-  if (realSceneDroneEntity) realSceneDroneEntity.show = visible
-  for (const entity of realSceneCheckpointEntities.values()) entity.show = visible
-  for (const entity of realSceneRunnerEntities) entity.show = visible
-}
-
-function renderRealSceneAlerts(alerts = []) {
-  if (!realSceneCheckpointEntities.size) return
-  const activeAlerts = alerts.filter((alert) => alert.status !== 'resolved' && alert.event_type !== 'system')
-  for (const checkpoint of REAL_SCENE_CHECKPOINTS) {
-    const entity = realSceneCheckpointEntities.get(checkpoint.id)
-    if (!entity) continue
-    const checkpointAlerts = activeAlerts.filter((alert) => checkpoint.segments.includes(alert.segment_id))
-    const urgent = checkpointAlerts.some((alert) => alert.level === 'critical' && alert.status === 'new')
-    const warning = checkpointAlerts.length > 0
-    const selected = checkpoint.segments.includes(props.selectedSegmentId)
-    const baseColor = urgent
-      ? Color.fromCssColorString('#ff365f')
-      : warning
-        ? Color.fromCssColorString('#ffb547')
-        : selected
-          ? Color.fromCssColorString('#34d6c7')
-          : Color.fromCssColorString('#49bfff')
-    entity.point.color = urgent
-      ? new CallbackProperty(() => baseColor.withAlpha(0.58 + ((Math.sin(Date.now() / 160) + 1) / 2) * 0.42), false)
-      : new ConstantProperty(baseColor)
-    entity.point.pixelSize = urgent
-      ? new CallbackProperty(() => 15 + ((Math.sin(Date.now() / 160) + 1) / 2) * 6, false)
-      : new ConstantProperty(selected ? 17 : warning ? 15 : 13)
-    entity.point.outlineColor = new ConstantProperty(selected ? Color.WHITE : Color.fromCssColorString('#06111a'))
-    entity.label.fillColor = new ConstantProperty(baseColor)
-    entity.label.text = new ConstantProperty(
-      checkpointAlerts.length
-        ? `${checkpoint.code}  ${checkpoint.name} · ${checkpointAlerts.length}项报警`
-        : `${checkpoint.code}  ${checkpoint.name}`
-    )
+    if (labelEntity?.label) {
+      labelEntity.label.fillColor = new ConstantProperty(color)
+      labelEntity.label.text = new ConstantProperty(`${segment.id} ${segment.name}`)
+    }
   }
 }
+
+async function loadCampusRoute() {
+  try {
+    campusRoute.value = await platformApi.campusRoute()
+    clearCampusCourseEntities()
+    addCampusCourseEntities()
+    setCampusCourseVisibility(nanlinSceneModeActive.value && nanlinSceneVisible.value && nanlinCourseVisible.value)
+    renderSnapshot()
+  } catch (error) {
+    campusImportError.value = `无法读取已保存路线：${error.message}`
+  }
+}
+
+async function importCampusFile(file, kind) {
+  if (!file) return
+  campusImportError.value = ''
+  campusImportSuccess.value = ''
+  if (!/\.(geojson|json)$/i.test(file.name)) {
+    campusImportError.value = '请选择从 QGIS 导出的 .geojson 文件'
+    return
+  }
+  if (kind === 'route' && campusRoute.value.segments.length && !window.confirm('新路线会替换当前已保存的校园路线，确定继续吗？')) return
+  campusImportBusy.value = true
+  try {
+    campusRoute.value = await platformApi.importCampusGeoJson(file, kind)
+    clearCampusCourseEntities()
+    addCampusCourseEntities()
+    setCampusCourseVisibility(nanlinSceneModeActive.value && nanlinSceneVisible.value && nanlinCourseVisible.value)
+    renderSnapshot()
+    campusImportSuccess.value = kind === 'route'
+      ? `路线已保存：${campusRoute.value.segments.length} 段，约 ${campusRouteLength.value} km`
+      : `保障点已保存：${campusRoute.value.sites.length} 个`
+  } catch (error) {
+    campusImportError.value = error.message
+  } finally {
+    campusImportBusy.value = false
+    if (routeInput.value) routeInput.value.value = ''
+    if (sitesInput.value) sitesInput.value.value = ''
+  }
+}
+
+async function loadModels() {
+  try {
+    const result = await platformApi.models()
+    availableModels.value = result.models ?? []
+    const previous = window.localStorage.getItem('campus-model-id')
+    if (previous && availableModels.value.some((item) => item.id === previous)) selectedModelId.value = previous
+    else if (!availableModels.value.some((item) => item.id === selectedModelId.value)) {
+      selectedModelId.value = availableModels.value[0]?.id ?? ''
+    }
+  } catch (error) {
+    modelImportError.value = `无法读取模型列表：${error.message}`
+  }
+}
+
+async function displayModel(modelId) {
+  if (!modelId || modelUploadBusy.value) return
+  if (!availableModels.value.some((item) => item.id === modelId)) {
+    modelImportError.value = '这份模型尚未完成处理，不能切换显示'
+    return
+  }
+  if (loadedModelId !== modelId && nanlinTileset && viewer && !viewer.isDestroyed()) {
+    viewer.scene.primitives.remove(nanlinTileset)
+    nanlinTileset = null
+    loadedModelId = null
+  }
+  selectedModelId.value = modelId
+  window.localStorage.setItem('campus-model-id', modelId)
+  modelImportError.value = ''
+  await focusCampusScene()
+}
+
+async function refreshModelJob() {
+  if (!modelJob.value?.id) return
+  try {
+    const result = await platformApi.modelJob(modelJob.value.id)
+    modelJob.value = result.job
+    if (result.job.stage === 'ready') {
+      window.localStorage.removeItem('campus-model-job')
+      await loadModels()
+      await displayModel(result.job.id)
+    } else if (result.job.stage === 'error') {
+      window.localStorage.removeItem('campus-model-job')
+      modelImportError.value = result.job.message
+    } else {
+      jobPollTimer = window.setTimeout(refreshModelJob, 2000)
+    }
+  } catch (error) {
+    window.localStorage.removeItem('campus-model-job')
+    modelImportError.value = `无法读取处理状态：${error.message}`
+  }
+}
+
+async function importModelZip(file) {
+  if (!file) return
+  modelImportError.value = ''
+  if (!/\.zip$/i.test(file.name)) {
+    modelImportError.value = '请选择包含完整 OSGB 或 3D Tiles 的 .zip 压缩包'
+    return
+  }
+  if (file.size > 12 * 1024 ** 3) {
+    modelImportError.value = '压缩包超过 12 GB 上限'
+    return
+  }
+  if (file.size > 2 * 1024 ** 3 && !window.confirm(`这份模型包约 ${(file.size / 1024 ** 3).toFixed(1)} GB。上传、解压和转换可能耗时很久并占用大量磁盘空间。确认开始吗？`)) {
+    if (modelZipInput.value) modelZipInput.value.value = ''
+    return
+  }
+  modelUploadBusy.value = true
+  modelUploadProgress.value = 0
+  modelJob.value = null
+  try {
+    const result = await platformApi.importModel(file, (percent) => { modelUploadProgress.value = percent })
+    modelJob.value = result.job
+    window.localStorage.setItem('campus-model-job', result.job.id)
+    modelUploadBusy.value = false
+    await refreshModelJob()
+  } catch (error) {
+    modelImportError.value = error.message
+  } finally {
+    modelUploadBusy.value = false
+    if (modelZipInput.value) modelZipInput.value.value = ''
+  }
+}
+
+function setCampusCourseVisibility(visible) {
+  for (const entity of nanlinCourseEntities) entity.show = visible
+  if (!visible) selectedCampusFeature.value = null
+  viewer?.scene.requestRender()
+}
+
+function toggleCampusCourse() {
+  nanlinCourseVisible.value = !nanlinCourseVisible.value
+  setCampusCourseVisibility(nanlinSceneModeActive.value && nanlinSceneVisible.value && nanlinCourseVisible.value)
+}
+
 
 function renderSnapshot() {
   if (!viewer || !props.snapshot) return
   renderSegments(props.snapshot.segments, props.snapshot.alerts)
   renderAthletes(props.snapshot.athletes)
   renderDrones(props.snapshot.drones)
-  renderRealSceneAlerts(props.snapshot.alerts)
+  renderThematicLayers()
+  updateCampusCourseStyles()
 }
 
 function focusSegment(segmentId) {
@@ -445,65 +751,107 @@ function focusSegment(segmentId) {
   })
 }
 
+function focusCampusSegment(segmentId) {
+  const segment = campusSegmentById(segmentId)
+  if (!segment || !viewer) return
+  const longitudes = segment.coordinates.map((coordinate) => coordinate[0])
+  const latitudes = segment.coordinates.map((coordinate) => coordinate[1])
+  viewer.camera.flyTo({
+    destination: Rectangle.fromDegrees(
+      Math.min(...longitudes) - 0.00045,
+      Math.min(...latitudes) - 0.00045,
+      Math.max(...longitudes) + 0.00045,
+      Math.max(...latitudes) + 0.00045
+    ),
+    duration: 0.8
+  })
+}
+
 function focusRaceCourse() {
   if (!viewer) return
-  realSceneModeActive.value = false
-  setRealSceneDemoVisibility(false)
+  leaveCampusScene()
   viewer.camera.flyTo({
     destination: Rectangle.fromDegrees(114.343, 30.513, 114.387, 30.544),
     duration: 1.1
   })
 }
 
-async function focusRealScene() {
-  if (!viewer || realSceneStatus.value === 'loading') return
-  if (!realSceneTileset) return
-  realSceneVisible.value = true
-  realSceneModeActive.value = true
-  realSceneTileset.show = true
-  setRealSceneDemoVisibility(true)
-  renderRealSceneAlerts(props.snapshot?.alerts ?? [])
-  viewer.camera.lookAt(
-    REAL_SCENE_CENTER,
-    new HeadingPitchRange(0, -0.58, 140)
-  )
-  realSceneHomeView = true
+function leaveCampusScene() {
+  nanlinSceneModeActive.value = false
+  nanlinSceneVisible.value = false
+  if (nanlinTileset) nanlinTileset.show = false
+  setCampusCourseVisibility(false)
+  renderSnapshot()
+}
+
+async function focusCampusScene() {
+  if (!viewer || nanlinSceneStatus.value === 'loading') return
+  leaveCampusScene()
+  nanlinSceneModeActive.value = true
+  renderSnapshot()
+  const model = selectedModel.value
+  if (!nanlinTileset) {
+    try {
+      if (!model?.url) throw new Error('当前没有可用模型，请先导入完整的三维模型包')
+      nanlinSceneStatus.value = 'loading'
+      nanlinTileset = await Cesium3DTileset.fromUrl(model.url, {
+        enableCollision: true,
+        maximumScreenSpaceError: 32,
+        dynamicScreenSpaceError: true,
+        cacheBytes: 1024 * 1024 * 1024,
+        maximumCacheOverflowBytes: 512 * 1024 * 1024,
+        cullWithChildrenBounds: false
+      })
+      if (!viewer || viewer.isDestroyed()) return
+      viewer.scene.primitives.add(nanlinTileset)
+      nanlinTileset.show = false
+      loadedModelId = model.id
+      nanlinSceneStatus.value = 'ready'
+    } catch (error) {
+      console.error('三维模型加载失败', error)
+      nanlinSceneStatus.value = 'error'
+      modelImportError.value = `模型无法显示：${error.message}`
+    }
+  }
+  if (!nanlinSceneModeActive.value) return
+  nanlinSceneVisible.value = true
+  if (nanlinTileset) nanlinTileset.show = true
+  addCampusCourseEntities()
+  setCampusCourseVisibility(nanlinCourseVisible.value)
+  renderSnapshot()
+  if (nanlinTileset) {
+    await viewer.zoomTo(
+      nanlinTileset,
+      new HeadingPitchRange(0.15, -1.18, Math.max(500, nanlinTileset.boundingSphere.radius * 1.35))
+    )
+  } else {
+    viewer.camera.flyTo({ destination: Rectangle.fromDegrees(118.805, 32.077, 118.820, 32.087), duration: 0.8 })
+  }
   viewer.scene.requestRender()
   viewer.scene.screenSpaceCameraController.enableInputs = true
 }
 
-function toggleRealScene() {
-  if (!realSceneTileset) return
-  realSceneVisible.value = !realSceneVisible.value
-  realSceneTileset.show = realSceneVisible.value
-  setRealSceneDemoVisibility(realSceneVisible.value && realSceneModeActive.value)
-}
-
-async function loadRealScene() {
-  try {
-    realSceneStatus.value = 'loading'
-    realSceneTileset = await Cesium3DTileset.fromUrl('/3dtiles/BlockBAYBA/tileset.json', {
-      maximumScreenSpaceError: 12,
-      dynamicScreenSpaceError: true
-    })
-    viewer.scene.primitives.add(realSceneTileset)
-    addRealSceneDemoEntities()
-    renderRealSceneAlerts(props.snapshot?.alerts ?? [])
-    realSceneStatus.value = 'ready'
-  } catch (error) {
-    console.error('真实倾斜模型加载失败', error)
-    realSceneStatus.value = 'error'
+function toggleActiveScene() {
+  if (nanlinSceneModeActive.value && nanlinTileset) {
+    nanlinSceneVisible.value = !nanlinSceneVisible.value
+    nanlinTileset.show = nanlinSceneVisible.value
+    setCampusCourseVisibility(nanlinSceneVisible.value && nanlinCourseVisible.value)
   }
 }
 
 watch(() => props.snapshot, renderSnapshot, { deep: true })
+watch(() => props.historicalAlerts, renderThematicLayers, { deep: true })
+watch(layers, renderThematicLayers, { deep: true })
 watch(() => props.selectedAthleteId, renderSnapshot)
 watch(selectedDroneId, renderSnapshot)
 watch(
   () => props.selectedSegmentId,
   (value, previous) => {
     renderSnapshot()
-    if (value && value !== previous && !realSceneModeActive.value) focusSegment(value)
+    if (value && value !== previous) {
+      if (nanlinSceneModeActive.value && campusRoute.value.simulation_linked) focusCampusSegment(value)
+      else if (!nanlinSceneModeActive.value) focusSegment(value)
+    }
   }
 )
 
@@ -533,10 +881,17 @@ onMounted(async () => {
   clickHandler = new ScreenSpaceEventHandler(viewer.scene.canvas)
   clickHandler.setInputAction((movement) => {
     const picked = viewer.scene.pick(movement.position)
+    const campusSiteId = picked?.id?.properties?.campusSiteId?.getValue()
+    const campusSegmentId = picked?.id?.properties?.campusSegmentId?.getValue()
     const athleteId = picked?.id?.properties?.athleteId?.getValue()
     const droneId = picked?.id?.properties?.droneId?.getValue()
     const segmentId = picked?.id?.properties?.segmentId?.getValue()
-    if (droneId) {
+    if (nanlinSceneModeActive.value && campusSiteId) {
+      selectedCampusFeature.value = campusRoute.value.sites.find((site) => site.id === campusSiteId) ?? null
+    } else if (nanlinSceneModeActive.value && campusSegmentId) {
+      selectedCampusFeature.value = campusRoute.value.segments.find((segment) => segment.id === campusSegmentId) ?? null
+      if (campusRoute.value.simulation_linked) emit('select-segment', campusSegmentId)
+    } else if (droneId) {
       selectedDroneId.value = droneId
     } else if (athleteId) {
       emit('select-athlete', athleteId)
@@ -545,10 +900,20 @@ onMounted(async () => {
     }
   }, ScreenSpaceEventType.LEFT_CLICK)
   renderSnapshot()
-  await loadRealScene()
+  await loadCampusRoute()
+  await loadModels()
+  const previousJob = window.localStorage.getItem('campus-model-job')
+  if (previousJob) {
+    modelJob.value = { id: previousJob, stage: 'checking', message: '正在读取上次的处理状态' }
+    await refreshModelJob()
+  }
+  if (new URLSearchParams(window.location.search).get('scene') === 'nanlin') {
+    await focusCampusScene()
+  }
 })
 
 onBeforeUnmount(() => {
+  if (jobPollTimer) window.clearTimeout(jobPollTimer)
   clickHandler?.destroy()
   viewer?.destroy()
 })
@@ -562,30 +927,96 @@ onBeforeUnmount(() => {
       <strong>三维赛道态势</strong>
     </div>
     <div class="real-scene-controls">
-      <span :class="realSceneStatus">
-        {{ realSceneStatus === 'ready' ? '真实倾斜模型已接入' : realSceneStatus === 'error' ? '模型加载失败' : '正在加载模型' }}
+      <span :class="nanlinSceneStatus">
+        {{ nanlinSceneStatus === 'error' ? '三维模型不可用' : '场景切换' }}
       </span>
       <button @click="focusRaceCourse">赛事赛道</button>
-      <button :disabled="realSceneStatus !== 'ready'" @click="focusRealScene">
-        {{ realSceneModeActive ? '重置实景视角' : '实景模型' }}
+      <button :disabled="nanlinSceneStatus === 'loading'" @click="focusCampusScene">
+        {{ nanlinSceneStatus === 'loading' ? '三维模型加载中…' : nanlinSceneModeActive ? '重置实景视角' : '校园三维实景' }}
       </button>
-      <button :disabled="realSceneStatus !== 'ready'" @click="toggleRealScene">
-        {{ realSceneVisible ? '隐藏模型' : '显示模型' }}
+      <button :disabled="!nanlinSceneModeActive || !nanlinTileset" @click="toggleActiveScene">
+        {{ nanlinSceneVisible ? '隐藏模型' : '显示模型' }}
       </button>
+      <button v-if="nanlinSceneModeActive" :disabled="!nanlinSceneVisible" @click="toggleCampusCourse">
+        {{ nanlinCourseVisible ? '隐藏导入路线' : '显示导入路线' }}
+      </button>
+      <button v-if="nanlinSceneModeActive" class="campus-import-entry" @click="campusImportOpen = true; modelImportOpen = false">导入路线</button>
+      <button class="model-import-entry" @click="modelImportOpen = true; campusImportOpen = false">导入三维模型{{ modelJob && !['ready', 'error'].includes(modelJob.stage) ? ' · 处理中' : '' }}</button>
     </div>
-    <div v-if="realSceneModeActive" class="map-overlay real-scene-demo-badge">
-      <b>实景测试路线</b>
-      <span>约 120 m · 5名模拟运动员 · 1架无人机 · 3个监测点</span>
+    <section class="layer-panel">
+      <button class="layer-panel-toggle" type="button" @click="layerPanelOpen = !layerPanelOpen">专题图层 {{ layerPanelOpen ? '−' : '+' }}</button>
+      <div v-if="layerPanelOpen" class="layer-panel-body">
+        <template v-if="!nanlinSceneModeActive || campusRoute.simulation_linked">
+          <label><input v-model="layers.crowd" type="checkbox"> 人群密度热力</label>
+          <label><input v-model="layers.health" type="checkbox"> 健康风险热力</label>
+          <label><input v-model="layers.uav" type="checkbox"> 无人机覆盖区</label>
+          <label><input v-model="layers.alerts" type="checkbox"> 历史报警叠加</label>
+          <small>{{ nanlinSceneModeActive ? '风险、覆盖与报警已按S1–S5投影到校园示范环线；数值与位置仍为模拟演示，不是实测结果。' : '赛段级风险热力、150 m 无人机圈与报警位置均为模拟示意；非实测密度、真实航拍范围或精确事发坐标。' }}</small>
+        </template>
+        <small v-else>这份导入路线未使用S1–S5编号，因此暂不能承载模拟风险与实体。</small>
+      </div>
+    </section>
+    <div v-if="nanlinSceneModeActive" class="map-overlay real-scene-demo-badge">
+      <b>{{ campusRoute.segments.length ? `校园导入路线 · 约 ${campusRouteLength} km` : '校园三维场景 · 待导入同伴绘制路线' }}</b>
+      <span>{{ campusRoute.segments.length }} 个路线段 · {{ campusRoute.sites.length }} 个保障点 · {{ campusRoute.simulation_linked ? '已与S1–S5模拟数据建立空间映射' : '尚未与左侧模拟数据关联' }}</span>
     </div>
-    <div v-if="selectedRisk" class="map-overlay map-risk-card" :class="selectedRisk.level">
+    <section v-if="nanlinSceneModeActive && nanlinCourseVisible" class="campus-plan-card">
+      <div class="campus-plan-heading"><strong>校园路线接入</strong><span>待核查</span></div>
+      <p v-if="campusRoute.segments.length">来源：{{ campusRoute.route_filename }}。{{ campusRoute.note }} 点选线段可同步选择左侧赛段。</p>
+      <p v-else>旧截图拟合线已撤下。请让同伴在 QGIS 中沿道路绘制路线，导出 EPSG:4326 的 GeoJSON，再点上方“导入路线”。</p>
+      <div v-if="campusRoute.sites.length" class="campus-plan-key">
+        <span><i class="medical"></i>拟设医疗 {{ campusSiteCounts.medical }}</span>
+        <span><i class="water"></i>拟设补给 {{ campusSiteCounts.water }}</span>
+        <span><i class="marshal"></i>拟设观察 {{ campusSiteCounts.marshal }}</span>
+      </div>
+      <div v-if="selectedCampusFeature" class="campus-plan-selected">
+        <b>{{ selectedCampusFeature.name }}</b>
+        <span>{{ selectedCampusFeature.reason || selectedCampusFeature.task }}</span>
+      </div>
+      <small>导入成功不代表路线已经测量或验证；道路、封控与救护条件仍需现场核查。当前连接属于“模拟数据空间投影”，不是实测定位。</small>
+    </section>
+    <section v-if="campusImportOpen" class="campus-import-dialog" role="dialog" aria-modal="true" aria-label="导入校园路线">
+      <div class="campus-import-heading"><strong>接入同伴绘制的校园路线</strong><button @click="campusImportOpen = false" aria-label="关闭">×</button></div>
+      <p>路线和三维建筑模型是两种文件。这里导入 QGIS 绘制的 GeoJSON 线与点；原始 OSGB / 3D Tiles 模型不能通过这个小文件窗口上传。</p>
+      <label class="campus-import-file">① 路线（必需）：LineString / MultiLineString
+        <input ref="routeInput" type="file" accept=".geojson,.json" :disabled="campusImportBusy" @change="importCampusFile($event.target.files?.[0], 'route')">
+      </label>
+      <label class="campus-import-file">② 医疗、补给等点位（可选）：Point
+        <input ref="sitesInput" type="file" accept=".geojson,.json" :disabled="campusImportBusy" @change="importCampusFile($event.target.files?.[0], 'sites')">
+      </label>
+      <small>导出坐标系选 WGS84 / EPSG:4326；路线属性可填 segment_id、name、task；点位属性可填 kind、name、note。文件保存在本机项目中，其他电脑需通过 Git 同步。</small>
+      <p v-if="campusImportError" class="campus-import-error">{{ campusImportError }}</p>
+      <p v-if="campusImportSuccess" class="campus-import-success">{{ campusImportSuccess }}</p>
+    </section>
+    <section v-if="modelImportOpen" class="campus-import-dialog model-import-dialog" role="dialog" aria-modal="true" aria-label="导入三维模型">
+      <div class="campus-import-heading"><strong>接入三维实景模型</strong><button @click="modelImportOpen = false" aria-label="关闭">×</button></div>
+      <p>这里接收完整的 <b>3D Tiles 或 OSGB 压缩包（.zip）</b>。3D Tiles 可直接校验接入；OSGB 会先在本机后台转换，不能选完文件立刻显示。</p>
+      <div class="model-import-current">
+        <span>当前显示</span><strong>{{ selectedModel?.name ?? '暂无模型' }}</strong>
+      </div>
+      <div v-if="availableModels.length" class="model-import-list">
+        <span>已可使用的模型</span>
+        <button v-for="model in availableModels" :key="model.id" :class="{ active: model.id === selectedModelId }" :disabled="nanlinSceneStatus === 'loading'" @click="displayModel(model.id)">
+          <strong>{{ model.name }}</strong><small>{{ model.format }} · {{ model.id === selectedModelId ? '当前' : '点击切换' }}</small>
+        </button>
+      </div>
+      <label class="campus-import-file">选择模型压缩包（最大 12 GB）
+        <input ref="modelZipInput" type="file" accept=".zip,application/zip" :disabled="modelUploadBusy || (modelJob && !['ready', 'error'].includes(modelJob.stage))" @change="importModelZip($event.target.files?.[0])">
+      </label>
+      <div v-if="modelUploadBusy" class="model-import-progress"><strong>正在上传到本机：{{ modelUploadProgress }}%</strong><progress :value="modelUploadProgress" max="100"></progress><small>请保持网页和前后端运行，不要关闭窗口。</small></div>
+      <div v-if="modelJob" class="model-import-progress"><strong>{{ modelJob.stage === 'ready' ? '处理完成' : modelJob.stage === 'error' ? '处理失败' : '后台处理中' }}</strong><span>{{ modelJob.message }}</span><progress v-if="modelJob.stage !== 'error'" :value="modelJob.progress || 0" max="100"></progress></div>
+      <p v-if="modelImportError" class="campus-import-error">{{ modelImportError }}</p>
+      <small>请压缩整个模型目录，保留内部层级与 metadata.xml / tileset.json 等文件。仅有一个 tileset.json 不够。原始 OSGB 转换依赖本机 3dtile 工具，可能占用数十 GB 空间；导入后仍须目视核查位置。模型文件只保存在这台电脑，不会自动上传 GitHub。</small>
+    </section>
+    <div v-if="selectedRisk && (!nanlinSceneModeActive || campusRoute.simulation_linked)" class="map-overlay map-risk-card" :class="selectedRisk.level">
       <span>当前赛段风险</span>
       <strong>{{ selectedRisk.label }}</strong>
       <b>{{ selectedRisk.percent }}%</b>
     </div>
     <section
-      v-if="selectedDrone"
+      v-if="selectedDrone && !nanlinSceneModeActive"
       class="drone-monitor-card"
-      :class="[selectedDrone.status, { compact: realSceneModeActive }]"
+      :class="selectedDrone.status"
     >
       <div class="drone-monitor-heading">
         <div>

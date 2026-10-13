@@ -1,6 +1,6 @@
 <script setup>
 defineProps({ alerts: { type: Array, default: () => [] } })
-defineEmits(['action', 'locate'])
+defineEmits(['action', 'locate', 'open-uav-review'])
 
 const levelLabel = { critical: '紧急', warning: '关注', info: '信息' }
 const actionLabel = {
@@ -28,7 +28,7 @@ function formatDuration(seconds) {
         <span class="eyebrow">EVENT CENTER</span>
         <h2>实时事件</h2>
       </div>
-      <span class="live-mark"><i></i> LIVE</span>
+      <div class="alert-panel-tools"><button type="button" @click="$emit('open-uav-review')">监测代码 ↗</button><span class="live-mark"><i></i> LIVE</span></div>
     </div>
 
     <div class="alert-list">

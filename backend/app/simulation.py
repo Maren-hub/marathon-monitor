@@ -4,6 +4,7 @@ import asyncio
 import json
 import math
 import random
+from collections import deque
 from collections.abc import Awaitable, Callable
 from datetime import datetime, timezone
 from pathlib import Path
@@ -171,6 +172,7 @@ class MarathonSimulation:
         self._event_counts: dict[str, int] = {}
         self._drone_dispatch_count = 0
         self._counted_drone_alert_ids: set[str] = set()
+        self._health_history: deque[dict] = deque(maxlen=360)
         self._reset_state()
 
     def _reset_state(self) -> None:
@@ -222,6 +224,7 @@ class MarathonSimulation:
         self._event_counts = {"crowd": 0, "fall": 0, "vital": 0}
         self._drone_dispatch_count = 0
         self._counted_drone_alert_ids.clear()
+        self._health_history.clear()
         self.athletes = []
         participant_config = self.scenario.get("participant_generation", {})
         participant_count = int(participant_config.get("count", 36))
@@ -298,6 +301,19 @@ class MarathonSimulation:
             )
         ]
         self._recalculate_segments()
+        self._record_health_sample()
+
+    def _record_health_sample(self) -> None:
+        active = [athlete for athlete in self.athletes if athlete.status != "finished"]
+        if not active:
+            return
+        self._health_history.append({
+            "elapsed_seconds": self.race.elapsed_seconds,
+            "heart_rate_bpm": round(sum(item.heart_rate for item in active) / len(active), 1),
+            "spo2_percent": round(sum(item.blood_oxygen for item in active) / len(active), 1),
+            "fatigue_percent": round(sum(item.fatigue_percent for item in active) / len(active), 1),
+            "abnormal_count": sum(item.status in {"warning", "fallen"} for item in active),
+        })
 
     def _segment_for_distance(self, distance_km: float) -> SegmentState:
         for segment in self.segments:
@@ -454,6 +470,7 @@ class MarathonSimulation:
                         self._demo_completed = True
                         self._running = False
                         self.race.status = "paused"
+                self._record_health_sample()
             return self._build_snapshot()
 
     def _build_demo_state(self) -> DemoTimelineState:
@@ -546,6 +563,23 @@ class MarathonSimulation:
         async with self._lock:
             return self._build_snapshot()
 
+    async def analytics(self) -> dict:
+        async with self._lock:
+            return {
+                "source": "simulation",
+                "health_history": list(self._health_history),
+                "alerts": [item.model_dump(mode="json") for item in self.alerts if item.event_type != "system"],
+                "drone_dispatches": self._drone_dispatch_count,
+            }
+
+    async def export_state(self) -> dict:
+        async with self._lock:
+            return {
+                "snapshot": self._build_snapshot().model_dump(mode="json"),
+                "alerts": [item.model_dump(mode="json") for item in self.alerts],
+                "health_history": list(self._health_history),
+            }
+
     def _inject_event_unlocked(
         self,
         event_type: str,
@@ -618,7 +652,9 @@ class MarathonSimulation:
 
     async def inject_event(self, event_type: str, segment_id: str | None) -> AlertState:
         async with self._lock:
-            return self._inject_event_unlocked(event_type, segment_id)
+            alert = self._inject_event_unlocked(event_type, segment_id)
+            self._record_health_sample()
+            return alert
 
     def _append_stage_alert(self, event: dict) -> None:
         self._event_counter += 1

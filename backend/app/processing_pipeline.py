@@ -56,6 +56,21 @@ class AutomaticDataPipeline:
             self._environment.clear()
             self._gis.clear()
 
+    async def reset_source(self, source: str) -> dict:
+        """Clear one managed source without disturbing the other datasets."""
+        stores = {
+            "wearable": self._wearable,
+            "uav": self._uav,
+            "environment": self._environment,
+            "gis_segments": self._gis,
+        }
+        if source not in stores:
+            raise KeyError(source)
+        async with self._lock:
+            removed = len(stores[source])
+            stores[source].clear()
+            return {"source": source, "removed": removed, "stored": self._stored_counts()}
+
     async def ingest(self, request: PipelineIngestRequest) -> PipelineIngestResponse:
         async with self._lock:
             for item in request.wearable:
@@ -85,6 +100,68 @@ class AutomaticDataPipeline:
     async def results(self) -> list[SegmentFusionResult]:
         async with self._lock:
             return self._build_results_unlocked()
+
+    async def status(self) -> dict:
+        """Return aggregate state for the data-management page.
+
+        Only counts and fused-result metadata are exposed here. Raw wearable
+        records stay inside the pipeline so the management view does not turn
+        into a personal-data browser.
+        """
+        async with self._lock:
+            results = self._build_results_unlocked()
+            stored = self._stored_counts()
+            usable = [item for item in results if item.record_status == "usable"]
+            partial = [item for item in results if item.record_status == "partial"]
+            latest_window = max((item.window_start for item in results), default=None)
+            return {
+                "storage_mode": "memory",
+                "stored": stored,
+                "total_records": sum(stored.values()),
+                "result_windows": len(results),
+                "usable_results": len(usable),
+                "partial_results": len(partial),
+                "segment_ids": sorted({item.segment_id for item in results}),
+                "latest_window_start": latest_window,
+                "source_states": {
+                    name: {"available": count > 0, "count": count}
+                    for name, count in stored.items()
+                },
+                "rule_version": self.RULE_VERSION,
+                "time_window_seconds": self.window_seconds,
+            }
+
+    async def records(self, source: str, limit: int = 200) -> dict:
+        """Return a bounded, read-only preview for one data-management module.
+
+        Wearable records contain anonymous athlete identifiers only.  The
+        endpoint deliberately caps the preview so a browser table cannot be
+        mistaken for the long-term data store that this prototype does not yet
+        provide.
+        """
+        stores = {
+            "wearable": self._wearable,
+            "uav": self._uav,
+            "environment": self._environment,
+            "gis_segments": self._gis,
+        }
+        if source not in stores:
+            raise KeyError(source)
+        limit = max(1, min(limit, 500))
+        async with self._lock:
+            values = list(stores[source].values())
+            if source == "gis_segments":
+                values.sort(key=lambda item: item.segment_id)
+            else:
+                values.sort(key=lambda item: item.timestamp, reverse=True)
+            records = [item.model_dump(mode="json") for item in values[:limit]]
+            return {
+                "source": source,
+                "total": len(values),
+                "returned": len(records),
+                "storage_mode": "memory",
+                "records": records,
+            }
 
     def rules(self) -> dict:
         return {

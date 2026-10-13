@@ -1,0 +1,45 @@
+{
+  "type": "FeatureCollection",
+  "name": "校园赛事拟设医疗保障点",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "site_id": "M1",
+        "kind": "medical",
+        "name": "M1 起终点综合医疗站",
+        "note": "设于S1起点与S5终点衔接位置，承担赛前应急准备、终点体征复核和赛后恢复保障；救护车辆通道、驻点空间和校方许可仍需现场核查。"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [118.81169249, 32.08493310, -158.82]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "site_id": "M2",
+        "kind": "medical",
+        "name": "M2 东侧远端医疗点",
+        "note": "设于S2东侧弯道路段，覆盖距起终点较远区域以及转弯减速、局部拥挤情形；实际驻点安全距离和救护通达性仍需现场核查。"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [118.81815373, 32.08230995, -155.94]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "site_id": "M3",
+        "kind": "medical",
+        "name": "M3 后程医疗响应点",
+        "note": "设于S4后程体能风险路段，用于响应疲劳、异常步态和体征异常，并兼顾S3至S5的中后程转运；驻点空间和车辆进出条件仍需现场核查。"
+      },
+      "geometry": {
+        "type": "Point",
+        "coordinates": [118.81458151, 32.08230625, -158.82]
+      }
+    }
+  ]
+}
